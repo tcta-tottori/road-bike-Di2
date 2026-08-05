@@ -92,6 +92,21 @@ header.top{
 /* ---------- 3D viewer ---------- */
 .viewer{position:relative; background:var(--canvas-bg); overflow:hidden; touch-action:none}
 .viewer canvas{display:block; width:100%; height:100%}
+.player{
+  position:absolute; left:0; right:0; bottom:0; z-index:6; display:none;
+  padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);
+  background:linear-gradient(0deg,rgba(6,10,14,.94),rgba(6,10,14,.62) 70%,rgba(6,10,14,0));
+}
+body.playing .player{display:block}
+body.playing .vhint{display:none}
+.pl-row{display:flex; gap:6px}
+.pl-row button{
+  flex:1; min-height:38px; border-radius:9px; border:1px solid #2f3b47;
+  background:rgba(22,30,38,.9); color:#dbe4ec; font-family:inherit; font-size:12px; font-weight:700; cursor:pointer;
+}
+.pl-row button:active{transform:scale(.95)}
+#plPP{flex:1.4; background:var(--accent2); border-color:var(--accent2); color:#fff; font-size:14px}
+#plRec.rec{background:#c0392b; border-color:#c0392b; color:#fff}
 .vhint{
   position:absolute; left:8px; bottom:8px; z-index:3;
   font-size:10px; color:#7d8b99; background:rgba(10,14,18,.55);
@@ -293,11 +308,22 @@ select,.sel{
     <div class="vtools">
       <button class="vbtn" id="btnXray" title="透視表示">透視</button>
       <button class="vbtn" id="btnWire" title="配線表示">配線</button>
+      <button class="vbtn" id="btnPlay" title="解説を再生">解説</button>
       <button class="vbtn" id="btnLabel" title="部品名の表示">名称</button>
       <button class="vbtn" id="btnSpin" title="自動回転">回転</button>
       <button class="vbtn" id="btnReset" title="視点リセット">視点</button>
     </div>
     <div class="vhint">1本指＝回転 ／ 2本指＝拡大・移動</div>
+    <div class="player" id="player">
+      <div class="pl-row">
+        <button id="plPrev" aria-label="前の工程">◀◀</button>
+        <button id="plPP" aria-label="再生／一時停止">❚❚</button>
+        <button id="plNext" aria-label="次の工程">▶▶</button>
+        <button id="plSpeed" aria-label="再生速度">1.0×</button>
+        <button id="plRec" aria-label="録画">● 録画</button>
+        <button id="plClose" aria-label="解説を終了">✕</button>
+      </div>
+    </div>
   </div>
 
   <div class="sheet" id="sheet">
@@ -413,9 +439,19 @@ select,.sel{
           <li>チェック状況はこの端末のブラウザに保存されます（localStorage）。</li>
         </ul>
         <div class="pillrow" style="margin-top:10px">
+          <button class="focusbtn" id="btnPlayAll">▶ 解説を最初から再生</button>
           <button class="focusbtn" id="btnPrint">印刷 / PDF（A4縦）</button>
           <button class="focusbtn" id="btnClear">チェックを全消去</button>
         </div>
+      </div>
+      <div class="card">
+        <h3 class="sec">解説の再生と動画書き出し</h3>
+        <ul class="plain">
+          <li>3D右上の<b>「解説」</b>、または各工程の<b>「▶ この工程から解説を再生」</b>で、工程を順に自動再生します。</li>
+          <li>カメラが自動で寄り、対象部位が点灯し、配線は経路に沿って伸びていきます。字幕に作業項目が順に出ます。</li>
+          <li>再生中のバーで 前後の工程・一時停止・速度（0.5〜2.0×）を操作できます。</li>
+          <li><b>「● 録画」</b>を押すと最初から再生しながら録画し、停止すると <span class="kbd">.webm</span> 動画として保存されます（約2分半・音声なし）。端末が対応していない場合はボタンが出ません。</li>
+        </ul>
       </div>
       <div class="card">
         <h3 class="sec">アプリとして使う（PWA）</h3>
@@ -882,11 +918,21 @@ function rebuildDynamic(){
   const rsD=mesh('rs910dt',COL.junc); box(rsD,POS.rs910_dt,64,18,20,-0.72); out.push(rsD);
   DYN=out;
 }
+let CABLE_REVEAL=null;   // {c1:0..1, ...} 指定時はその割合だけ描く
 function cableMeshes(){
   const out=[];
   for(const c of CABLES){
+    let path=CABLE_PATHS[c.id];
+    if(CABLE_REVEAL){
+      const f=CABLE_REVEAL[c.id];
+      if(f<=0.001) continue;
+      if(f<1){
+        const n=Math.max(2,Math.round(path.length*f));
+        path=path.slice(0,n);
+      }
+    }
     const m=mesh('cable_'+c.id,c.color);
-    polyTube(m,CABLE_PATHS[c.id],4.4,4);
+    polyTube(m,path,4.4,4);
     out.push(m);
   }
   return out;
@@ -967,11 +1013,23 @@ function visibleMesh(m){
   if(m.group.startsWith('cable_')) return showWire;
   return true;
 }
+/* 解説再生用のメッシュ変形。group ごとに {dx,dy,dz} 平行移動と、
+   (cx,cy) を中心とした Z 軸まわりの回転を与える */
+let XF=null;
+function xform(pt,x){
+  let px=pt.x, py=pt.y;
+  if(x.ang){
+    const c=Math.cos(x.ang), s2=Math.sin(x.ang), ax=px-x.cx, ay=py-x.cy;
+    px=x.cx+ax*c-ay*s2; py=x.cy+ax*s2+ay*c;
+  }
+  return V(px+(x.dx||0), py+(x.dy||0), pt.z+(x.dz||0));
+}
 function collect(list,meshes,active){
   for(const m of meshes){
     if(isActive(m.group)!==active) continue;
     if(!visibleMesh(m)) continue;
-    const vv=m.v.map(toView);
+    const x=XF&&XF[m.group];
+    const vv=x? m.v.map(q=>toView(xform(q,x))) : m.v.map(toView);
     for(const f of m.f){
       let z=0,ok=true;
       for(const i of f){ if(vv[i].z<=1){ok=false;break;} z+=vv[i].z; }
@@ -1128,8 +1186,14 @@ function render(){
   if(xray) ctx.globalAlpha=1;
   drawList(act,true);
   drawLabels();
+  if(PLAY.on||document.body.classList.contains('playing')) drawHUD();
 }
 function tick(){
+  if(PLAY.on){
+    const now=performance.now();
+    const dt=Math.min(80,now-PLAY.last); PLAY.last=now;
+    playTick(dt);
+  }
   if(camT){
     camT.t=Math.min(1,camT.t+0.055);
     const e=1-Math.pow(1-camT.t,3);
@@ -1203,7 +1267,7 @@ function fitView(az,el,groups,pad=1.06){
   const el=document.getElementById('viewer');
   let pts=new Map(), lastD=0, lastMid=null;
   // ツールボタン上のタッチはポインタキャプチャしない（キャプチャするとclickが飛ばない）
-  const onTools=e=>e.target.closest&&e.target.closest('.vtools');
+  const onTools=e=>e.target.closest&&e.target.closest('.vtools,.player');
   el.addEventListener('pointerdown',e=>{
     if(onTools(e)) return;
     el.setPointerCapture(e.pointerId);
@@ -1578,12 +1642,16 @@ function renderStep(){
        s.notes.map(n=>`<div class="note ${n[0]==='danger'?'danger':n[0]==='info'?'info':''}"><b>${esc(n[1])}</b>${esc(n[2])}</div>`).join('');
   }
   h+=`<h3 class="sec">3D表示</h3>
-      <button class="focusbtn" id="refocus">この工程の部位に視点を合わせる</button></div>`;
+      <div class="pillrow">
+        <button class="focusbtn" id="refocus">この工程の部位に視点を合わせる</button>
+        <button class="focusbtn" id="playhere">▶ この工程から解説を再生</button>
+      </div></div>`;
   el.innerHTML=h;
   el.querySelectorAll('input[type=checkbox]').forEach(cb=>{
     cb.onchange=()=>{done[cb.dataset.k]=cb.checked; saveDone(); renderChips(); updateProgress();};
   });
   $('#refocus').onclick=()=>{applyView();};
+  $('#playhere').onclick=()=>startPlay(cur);
   $('#posl').textContent='STEP '+cur;
   $('#post').textContent=s.t;
   $('#prev').disabled=cur===0; $('#next').disabled=cur===STEPS.length-1;
@@ -1644,6 +1712,7 @@ $('#btnSpin').onclick=e=>{spin=!spin; syncSpin();};
   let lock=0;                                  // ボタン復帰の直後は畳まない
   sheet.addEventListener('scroll',()=>{
     if(performance.now()-lock<600) return;
+    if(document.body.classList.contains('playing')) return;   // 解説再生中は畳まない
     if(sheet.scrollTop>36) set(true);          // 上に戻しても自動では開かない
   },{passive:true});
   $('#fab').onclick=()=>{
@@ -1654,6 +1723,7 @@ $('#btnSpin').onclick=e=>{spin=!spin; syncSpin();};
 })();
 $('#btnReset').onclick=()=>applyView();
 function syncSpin(){$('#btnSpin').classList.toggle('on',spin);}
+$('#btnPlayAll').onclick=()=>{ document.querySelectorAll('.tab')[0].click(); startPlay(0); };
 $('#btnPrint').onclick=()=>window.print();
 $('#btnClear').onclick=()=>{ if(confirm('チェック状況をすべて消去します。よろしいですか？')){done={};saveDone();renderChips();renderStep();} };
 
@@ -1847,6 +1917,173 @@ function buildPrint(){
 }
 
 /* ============================================================
+   8.5 解説再生（工程を自動再生する「動画」モード）
+   ============================================================ */
+const PLAY={on:false,step:0,t:0,speed:1,last:0,rec:null,chunks:[]};
+let SCENES=[];
+
+/** 工程データから再生シーンを組み立てる */
+function buildScenes(){
+  SCENES=STEPS.map((st,i)=>{
+    const anim =
+      st.id==='wheel' ? 'spin' :
+      st.id==='chain'||st.id==='crank' ? 'drive' :
+      st.id==='wiring' ? 'cable' :
+      (st.id==='rd'||st.id==='junction'||st.id==='cockpit'||st.id==='brake') ? 'install' :
+      'orbit';
+    return {
+      i, anim,
+      dur: clamp(5.5+st.work.length*0.85, 6, 14),
+      az: st.view.az, el: st.view.el, fit: st.view.fit||st.g,
+      title: st.t, sub: st.s, lines: st.work
+    };
+  });
+}
+/** シーン開始：カメラの基準位置と強調対象を決める */
+function startScene(i){
+  PLAY.step=clamp(i,0,SCENES.length-1); PLAY.t=0;
+  const sc=SCENES[PLAY.step], st=STEPS[sc.i];
+  cur=sc.i; renderChips(); renderStep();
+  activeGroups=new Set(st.g);
+  activeLabels=(st.labels||[]).map(l=>({g:l[0],t:l[1]}));
+  $('#legend').innerHTML='';
+  // カメラは ±16° スイープするので、両端で収まる距離を採る
+  const a=fitView(sc.az-16,sc.el,sc.fit,1.12), b2=fitView(sc.az+16,sc.el,sc.fit,1.12);
+  sc.base = (a&&b2) ? {az:sc.az, el:sc.el, dist:Math.max(a.dist,b2.dist),
+                       target:[(a.target[0]+b2.target[0])/2,(a.target[1]+b2.target[1])/2,(a.target[2]+b2.target[2])/2]}
+                    : (a||b2||{az:sc.az,el:sc.el,dist:cam.dist,target:[cam.tx,cam.ty,cam.tz]});
+  camT=null;
+  updatePlayerUI();
+}
+/** 毎フレームのシーン適用 */
+function applyScene(sc,p){
+  const b=sc.base;
+  cam.az=b.az-16+32*p; cam.el=b.el; cam.dist=b.dist*(1.06-0.06*Math.min(1,p*2));
+  cam.tx=b.target[0]; cam.ty=b.target[1]; cam.tz=b.target[2];
+  XF=null; CABLE_REVEAL=null;
+  const ease=t=>1-Math.pow(1-clamp(t,0,1),3);
+  if(sc.anim==='spin'||sc.anim==='drive'){
+    const a=p*Math.PI*2*1.2;
+    XF={};
+    for(const g of ['wheelR','motor','rotorR','cassette']) XF[g]={ang:-a,cx:REAR.x,cy:REAR.y};
+    for(const g of ['wheelF','rotorF'])                    XF[g]={ang:-a,cx:FRONT.x,cy:FRONT.y};
+    if(sc.anim==='drive') XF.crank={ang:-a,cx:0,cy:0};
+  }else if(sc.anim==='cable'){
+    // 6本を順番に伸ばしていく
+    CABLE_REVEAL={};
+    const n=CABLES.length, span=1/n;
+    CABLES.forEach((c,k)=>{
+      const local=(p-k*span*0.92)/span;
+      CABLE_REVEAL[c.id]=clamp(local,0,1);
+    });
+  }else if(sc.anim==='install'){
+    // 強調部品が外側から所定位置へ入ってくる
+    const k=1-ease(Math.min(1,p*1.6));
+    if(k>0.001){
+      XF={};
+      for(const g of activeGroups){
+        if(g==='*'||g.startsWith('cable_')) continue;
+        const a=ANCHORS[g]; if(!a) continue;
+        const d=vnorm(V(a.x-60,a.y-260,a.z||1));
+        XF[g]={dx:d.x*260*k, dy:d.y*260*k+120*k, dz:d.z*260*k};
+      }
+    }
+  }
+}
+/** 画面下に出す字幕とシークバー（録画にもそのまま入る） */
+function drawHUD(){
+  const sc=SCENES[PLAY.step]; if(!sc) return;
+  const p=PLAY.t/sc.dur;
+  const pb=$('#player').offsetHeight||0;            // プレイヤーバーの分だけ上に置く
+  const bh=Math.min(72,H*0.22), y=Math.max(20,H-bh-pb);
+  const g=ctx.createLinearGradient(0,y-16,0,H);
+  g.addColorStop(0,'rgba(6,10,14,0)'); g.addColorStop(0.35,'rgba(6,10,14,.78)'); g.addColorStop(1,'rgba(6,10,14,.92)');
+  ctx.fillStyle=g; ctx.fillRect(0,y-16,W,bh+16);
+  ctx.textBaseline='middle'; ctx.textAlign='left';
+  ctx.fillStyle='#ff7a63'; ctx.font='800 11px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
+  ctx.fillText('STEP '+sc.i+' / '+(SCENES.length-1), 12, y+4);
+  ctx.fillStyle='#fff'; ctx.font='800 15px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
+  ctx.fillText(sc.title, 12, y+24);
+  // 作業項目を順に送る
+  const head=0.20, n=sc.lines.length;
+  let line=sc.sub;
+  if(p>head&&n){
+    const k=Math.min(n-1,Math.floor((p-head)/(1-head)*n));
+    line='・'+sc.lines[k];
+  }
+  ctx.fillStyle='#c3ced9'; ctx.font='400 12px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
+  let txt=line;
+  while(ctx.measureText(txt).width>W-24&&txt.length>4) txt=txt.slice(0,-2);
+  if(txt!==line) txt=txt.slice(0,-1)+'…';
+  ctx.fillText(txt, 12, y+46);
+  // 全体の進捗
+  const done=(PLAY.step+p)/SCENES.length;
+  const by=y+bh-3;
+  ctx.fillStyle='rgba(255,255,255,.18)'; ctx.fillRect(0,by,W,3);
+  ctx.fillStyle='#ff5a41'; ctx.fillRect(0,by,W*done,3);
+}
+function playTick(dtMs){
+  const sc=SCENES[PLAY.step]; if(!sc) return;
+  PLAY.t += dtMs/1000*PLAY.speed;
+  if(PLAY.t>=sc.dur){
+    if(PLAY.step>=SCENES.length-1){ stopPlay(); return; }
+    startScene(PLAY.step+1); return;
+  }
+  applyScene(sc,PLAY.t/sc.dur);
+  dirty=true;
+}
+function startPlay(from){
+  if(!SCENES.length) buildScenes();
+  document.body.classList.remove('viewer-collapsed');
+  PLAY.on=true; PLAY.last=performance.now(); spin=false; syncSpin();
+  document.body.classList.add('playing');
+  startScene(from!==undefined?from:cur);
+}
+function stopPlay(){
+  PLAY.on=false; XF=null; CABLE_REVEAL=null;
+  document.body.classList.remove('playing');
+  if(PLAY.rec&&PLAY.rec.state==='recording') stopRec();
+  updatePlayerUI(); applyView();
+}
+function updatePlayerUI(){
+  const sc=SCENES[PLAY.step];
+  $('#btnPlay').classList.toggle('on',PLAY.on);
+  $('#plPP').textContent = PLAY.on ? '❚❚' : '▶';
+  $('#plSpeed').textContent = PLAY.speed.toFixed(1)+'×';
+}
+/* --- WebM 書き出し --- */
+function canRec(){
+  return typeof MediaRecorder!=='undefined' && cv.captureStream &&
+    (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')||MediaRecorder.isTypeSupported('video/webm'));
+}
+function startRec(){
+  if(!canRec()) return;
+  const type=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';
+  PLAY.chunks=[];
+  PLAY.rec=new MediaRecorder(cv.captureStream(30),{mimeType:type,videoBitsPerSecond:4_000_000});
+  PLAY.rec.ondataavailable=e=>{ if(e.data.size) PLAY.chunks.push(e.data); };
+  PLAY.rec.onstop=()=>{
+    const blob=new Blob(PLAY.chunks,{type:'video/webm'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='domane-di2-guide.webm';
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    $('#plRec').classList.remove('rec'); $('#plRec').textContent='● 録画';
+  };
+  PLAY.rec.start();
+  $('#plRec').classList.add('rec'); $('#plRec').textContent='■ 停止';
+  startPlay(0);
+}
+function stopRec(){ if(PLAY.rec&&PLAY.rec.state==='recording') PLAY.rec.stop(); }
+
+$('#btnPlay').onclick=()=>{ PLAY.on?stopPlay():startPlay(cur); };
+$('#plPP').onclick=()=>{ if(PLAY.on){PLAY.on=false;document.body.classList.remove('playing');updatePlayerUI();} else {PLAY.on=true;PLAY.last=performance.now();document.body.classList.add('playing');updatePlayerUI();} };
+$('#plPrev').onclick=()=>startScene(PLAY.step-1);
+$('#plNext').onclick=()=>startScene(PLAY.step+1);
+$('#plClose').onclick=()=>stopPlay();
+$('#plSpeed').onclick=()=>{ PLAY.speed = PLAY.speed>=2 ? 0.5 : PLAY.speed+0.5; updatePlayerUI(); };
+$('#plRec').onclick=()=>{ (PLAY.rec&&PLAY.rec.state==='recording')?stopRec():startRec(); };
+
+/* ============================================================
    9. PWA（インストールとオフライン動作）
    ============================================================ */
 (function(){
@@ -1881,6 +2118,8 @@ buildBike();
 renderParts();
 renderLengths();
 buildPrint();
+buildScenes();
+if(!canRec()){ $('#plRec').style.display='none'; }
 renderChips();
 renderStep();
 applyView();
