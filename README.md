@@ -3,7 +3,10 @@
 Trek Domane+ AL 5（size 54・HyDrive リアハブモーター）を 1×11 の Di2 化する際の施工手順を、
 **3Dで確認しながら進められる単一HTMLのWebアプリ**です。スマートフォン縦持ちでの現場利用を前提にしています。
 
+**公開URL: https://tcta-tottori.github.io/road-bike-Di2/**
+
 `index.html` をブラウザで開くだけで動作します。ビルド不要・外部通信なし・オフライン可。
+（GitHub Pages へは既定ブランチへの push で自動デプロイ／`.github/workflows/pages.yml`）
 
 ---
 
