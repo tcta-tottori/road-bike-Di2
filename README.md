@@ -6,7 +6,16 @@ Trek Domane+ AL 5（size 54・HyDrive リアハブモーター）を 1×11 の D
 **公開URL: https://tcta-tottori.github.io/road-bike-Di2/**
 
 `index.html` をブラウザで開くだけで動作します。ビルド不要・外部通信なし・オフライン可。
-（GitHub Pages へは既定ブランチへの push で自動デプロイ／`.github/workflows/pages.yml`）
+
+### GitHub Pages の有効化（初回のみ手動）
+
+リポジトリの **Settings → Pages → Build and deployment → Source** を設定してください。
+
+- **GitHub Actions** を選ぶ … `.github/workflows/pages.yml` により、既定ブランチへの push で自動デプロイされます（推奨）。
+- **Deploy from a branch** を選ぶ … branch = 既定ブランチ、folder = `/ (root)`。ワークフロー不要で直下の `index.html` がそのまま公開されます（`.nojekyll` 配置済み）。
+
+※ Actions 方式でデプロイが権限エラーになる場合は、**Settings → Actions → General → Workflow permissions** を
+「Read and write permissions」にしてから再実行してください。
 
 ---
 
