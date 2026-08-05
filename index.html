@@ -213,6 +213,7 @@ table.t th{background:rgba(127,127,127,.08); font-weight:700; white-space:nowrap
   border-radius:20px; border:1px solid var(--accent2); background:transparent;
   color:var(--accent2); font-family:inherit; font-size:12px; font-weight:700; cursor:pointer;
 }
+.focusbtn.sm{min-height:28px; padding:0 11px; font-size:11px}
 
 /* nav bar */
 .navbar{
@@ -247,6 +248,16 @@ table.t th{background:rgba(127,127,127,.08); font-weight:700; white-space:nowrap
 .tag.ok{background:rgba(15,157,88,.15); color:var(--ok)}
 .tag.ng{background:rgba(232,64,42,.15); color:var(--accent)}
 .tag.warn{background:rgba(199,119,0,.18); color:var(--warn)}
+.tag.spec{background:rgba(10,132,196,.16); color:var(--accent2)}
+.tag.own{background:rgba(15,157,88,.15); color:var(--ok)}
+/* 外部マニュアルへのリンク */
+a.link{color:var(--accent2); text-decoration:none; border-bottom:1px solid currentColor}
+a.linkpill{
+  display:inline-flex; align-items:center; min-height:32px; padding:0 12px; border-radius:18px;
+  border:1px solid var(--accent2); color:var(--accent2); font-size:12px; font-weight:700; text-decoration:none;
+}
+a.linkpill::after{content:'↗'; margin-left:5px; font-size:11px; opacity:.8}
+.steps{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:var(--ink2)}
 select,.sel{
   font-family:inherit; font-size:14px; min-height:var(--tap); width:100%;
   border:1px solid var(--line); border-radius:10px; background:var(--paper); color:var(--ink); padding:0 10px;
@@ -344,7 +355,7 @@ select,.sel{
     <section class="pane" id="p-wire">
       <div class="card">
         <h2>Di2 配線図（EW-SD50 ×6）</h2>
-        <p class="sub">直列 → SM-JC41 で3分岐。総配線長 2,300 mm</p>
+        <p class="sub">接続は上流から ①→⑥ の順。SM-JC41 で3分岐／総配線長 2,300 mm</p>
         <div class="svgwrap" id="wirediagram"></div>
       </div>
 
@@ -409,6 +420,20 @@ select,.sel{
         <div id="partlist"></div>
       </div>
       <div class="card">
+        <h2>不足部品リスト（要手配）</h2>
+        <p class="sub" id="needdate"></p>
+        <div id="needlist"></div>
+        <div class="note" id="neednote"></div>
+      </div>
+      <div class="card">
+        <h2>工具リスト</h2>
+        <p class="sub">全工程で使う工具の集計。右の数字は使用する STEP 番号です</p>
+        <div class="pillrow" style="margin-bottom:8px">
+          <span class="tag spec">専用</span><span class="mini" style="margin:0">＝専用工具。手元になければ手配が必要</span>
+        </div>
+        <div id="toollist"></div>
+      </div>
+      <div class="card">
         <h3 class="sec">要確認・未確定事項</h3>
         <ul class="plain" id="todolist"></ul>
       </div>
@@ -424,6 +449,14 @@ select,.sel{
         <h3 class="sec">現況（実車写真より）</h3>
         <p class="sub" id="statusdate"></p>
         <div id="statuslist"></div>
+      </div>
+      <div class="card">
+        <h2>メーカーマニュアル</h2>
+        <p class="sub">STI・ディレイラー・Di2配線・ブレーキなどの一次資料</p>
+        <div id="manlist"></div>
+        <p class="mini">URL は 2026-08 時点。シマノはリビジョンが上がると文書番号（末尾の -03 など）が変わります。
+          リンク切れのときは <a href="https://si.shimano.com/" target="_blank" rel="noopener">si.shimano.com</a> で型番を検索してください。
+          オフライン（PWA）では外部リンクは開けません。</p>
       </div>
       <div class="card">
         <h3 class="sec">ジオメトリ（参考値・size 54）</h3>
@@ -448,9 +481,13 @@ select,.sel{
         <h3 class="sec">解説の再生と動画書き出し</h3>
         <ul class="plain">
           <li>3D右上の<b>「解説」</b>、または各工程の<b>「▶ この工程から解説を再生」</b>で、工程を順に自動再生します。</li>
-          <li>カメラが自動で寄り、対象部位が点灯し、配線は経路に沿って伸びていきます。字幕に作業項目が順に出ます。</li>
-          <li>再生中のバーで 前後の工程・一時停止・速度（0.5〜2.0×）を操作できます。</li>
-          <li><b>「● 録画」</b>を押すと最初から再生しながら録画し、停止すると <span class="kbd">.webm</span> 動画として保存されます（約2分半・音声なし）。端末が対応していない場合はボタンが出ません。</li>
+          <li>カメラが自動で寄り、対象部位が点灯し、字幕に作業項目が順に出ます。</li>
+          <li><b>配線（STEP 6）は1本ずつに分けて再生</b>します。全体像 → ①〜⑥を1本ずつ → 最終確認、の8シーン。
+            各シーンでは<b>上流のコネクタから下流のコネクタへ配線が伸び、カメラがその先端を追い</b>、最後に引いて経路全体を見せます。
+            接続済みの配線は色付きのまま残るので、どこまで繋いだかが一目で分かります。</li>
+          <li>画面上部の<b>①〜⑥のインジケータ</b>が接続順を表します（塗り＝接続済み／太枠＝接続中／薄い枠＝未接続）。</li>
+          <li>再生中のバーで 前後のシーン・一時停止・速度（0.5〜2.0×）を操作できます。</li>
+          <li><b>「● 録画」</b>を押すと最初から再生しながら録画し、停止すると <span class="kbd">.webm</span> 動画として保存されます（約3分半・音声なし）。端末が対応していない場合はボタンが出ません。</li>
         </ul>
       </div>
       <div class="card">
@@ -863,12 +900,24 @@ function buildBike(){
    4. Di2 配線（EW-SD50 ×6）
    ============================================================ */
 const CABLES=[
-  {id:'c1',n:'\u2460',from:'ST-RX815（左）',to:'ST-RX815（右）',spec:400,color:'#f0c419'},
-  {id:'c2',n:'\u2461',from:'ST-RX815（右）',to:'EW-RS910',    spec:250,color:'#f5891f'},
-  {id:'c3',n:'\u2462',from:'EW-RS910',      to:'SM-JC41',     spec:700,color:'#e8402a'},
-  {id:'c4',n:'\u2463',from:'SM-JC41',       to:'BT-DN110',    spec:200,color:'#22c1a8'},
-  {id:'c5',n:'\u2464',from:'SM-JC41',       to:'RD-M8050-GS', spec:600,color:'#4cb7ee'},
-  {id:'c6',n:'\u2465',from:'SM-JC41',       to:'EW-WU111',    spec:150,color:'#b06be0'}
+  {id:'c1',n:'\u2460',from:'ST-RX815（左）',to:'ST-RX815（右）',spec:400,color:'#f0c419',
+   fromG:'leverL',toG:'leverR',via:'ハンドル内部を横断',
+   how:['左レバーの電線ポートに EW-SD50 を挿す','ハンドル内をライナーで右へ送る','右レバーの空きポートに挿す']},
+  {id:'c2',n:'\u2461',from:'ST-RX815（右）',to:'EW-RS910',    spec:250,color:'#f5891f',
+   fromG:'leverR',toG:'rs910',via:'右レバー → バーエンド',
+   how:['右レバーのもう一方のポートに挿す','ドロップ内を通してバーエンドへ','EW-RS910 の上流ポートに挿す']},
+  {id:'c3',n:'\u2462',from:'EW-RS910',      to:'SM-JC41',     spec:700,color:'#e8402a',
+   fromG:'rs910',toG:'jc41',via:'コラム内 → ダウンチューブ内（最長経路）',
+   how:['EW-RS910 の下流ポートに挿す','ハンドル中央からコラム内を下ろす','ダウンチューブ内を通して SM-JC41 の入力へ']},
+  {id:'c4',n:'\u2463',from:'SM-JC41',       to:'BT-DN110',    spec:200,color:'#22c1a8',
+   fromG:'jc41',toG:'batt',via:'BB周辺 → シートチューブ下部',
+   how:['SM-JC41 の分岐ポートに挿す','BT-DN110 側の端子に挿す','バッテリーを固定してから余長を処理']},
+  {id:'c5',n:'\u2464',from:'SM-JC41',       to:'RD-M8050-GS', spec:600,color:'#4cb7ee',
+   fromG:'jc41',toG:'rd',via:'チェーンステー沿いに後方へ',
+   how:['SM-JC41 の分岐ポートに挿す','チェーンステー内（または沿い）を後方へ','RD-M8050-GS の端子に挿す']},
+  {id:'c6',n:'\u2465',from:'SM-JC41',       to:'EW-WU111',    spec:150,color:'#b06be0',
+   fromG:'jc41',toG:'wu111',via:'最寄りの開口部へ',
+   how:['SM-JC41 の残り1ポートに挿す','EW-WU111 に挿す','通信のためフレーム開口部付近に置く']}
 ];
 let RS910_MODE='bar';
 let CABLE_PATHS={};
@@ -919,12 +968,20 @@ function rebuildDynamic(){
   DYN=out;
 }
 let CABLE_REVEAL=null;   // {c1:0..1, ...} 指定時はその割合だけ描く
+let CABLE_TIP=null;      // 先端にリングマーカーを出す配線ID（接続中の1本）
+/** 表示割合を変えてジオメトリを作り直す（解説再生から毎フレーム呼ばれる） */
+function setReveal(map,tip){
+  CABLE_REVEAL=map||null; CABLE_TIP=tip||null;
+  rebuildDynamic(); dirty=true;
+}
+function clearReveal(){ if(CABLE_REVEAL||CABLE_TIP) setReveal(null,null); }
 function cableMeshes(){
   const out=[];
   for(const c of CABLES){
-    let path=CABLE_PATHS[c.id];
+    let path=CABLE_PATHS[c.id], f=1;
     if(CABLE_REVEAL){
-      const f=CABLE_REVEAL[c.id];
+      f=CABLE_REVEAL[c.id];
+      if(f===undefined) f=1;
       if(f<=0.001) continue;
       if(f<1){
         const n=Math.max(2,Math.round(path.length*f));
@@ -934,6 +991,13 @@ function cableMeshes(){
     const m=mesh('cable_'+c.id,c.color);
     polyTube(m,path,4.4,4);
     out.push(m);
+    // 接続中の1本は、いま伸びている先端に白いリングを出す
+    if(c.id===CABLE_TIP&&f<1&&path.length>1){
+      const tip=path[path.length-1], ax=vsub(tip,path[path.length-2]);
+      const mk=mesh('cable_'+c.id,'#ffffff');
+      torus(mk,tip,vlen(ax)>1e-6?ax:V(1,0,0),9,3,12,5);
+      out.push(mk);
+    }
   }
   return out;
 }
@@ -1110,11 +1174,13 @@ function drawLabels(){
     items.push({p,text:L.t,z:p.z,col:cableColor(L.g)});
   }
   items.sort((a,b)=>a.p.y-b.p.y);
+  // 解説再生中の配線シーンは、上部の「接続順」インジケータを避ける
+  const top=(PLAY.on&&SCENES[PLAY.step]&&SCENES[PLAY.step].wire)?62:14;
   let lastY=-1e9;
   ctx.font='600 11px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
   ctx.textBaseline='middle';
   for(const it of items){
-    let ly=Math.max(it.p.y, lastY+19); ly=clamp(ly,14,H-12); lastY=ly;
+    let ly=Math.max(it.p.y, lastY+19); ly=clamp(ly,top,H-12); lastY=ly;
     const w=ctx.measureText(it.text).width+14;
     // アンカーが右寄りならラベルを左側に出す
     let lx=clamp(it.p.x<W*0.55 ? it.p.x+16 : it.p.x-w-16, 6, Math.max(6,W-w-6));
@@ -1347,6 +1413,157 @@ const TODO=[
   'カーボンリムの最大空気圧とタイヤの推奨圧 — 低い方に合わせる',
   'リアキャリアと RD-M8050-GS ／ Di2 配線（⑤600mm のチェーンステー経路）の干渉'
 ];
+/* ---- 不足部品（要手配）リスト ------------------------------------------
+   実車の現況（2026-08-05）と資料に記載のない項目から作成。
+   st: 'need'＝手配が必要／'check'＝在庫・規格を要確認
+   EW-SD50 の不足分は配線タブの算出結果から自動で追記される（renderNeed）      */
+const NEED=[
+  ['need','駆動','ナローワイドチェーンリング','1枚','歯数が未確定。11-46T とハブモーターのアシスト特性から決める。これが決まらないとチェーン長も確定しない','crank'],
+  ['check','駆動','クランクセット','1式','既存流用の可否とチェーンラインを実測で判断。流用不可なら新規手配','crank'],
+  ['check','駆動','BB（クランクに合う規格）','1組','クランクを新規手配する場合。既存BBの回転とガタも確認','frame'],
+  ['need','駆動','チェーンリングボルト（シングル用）','1組','フロントシングル化でボルト長が変わる','crank'],
+  ['check','駆動','ディレイラーハンガー（予備）','1個','規格を確認のうえ予備を1つ。曲がりは変速不良に直結','rd'],
+  ['check','駆動','ミッシングリンク 11S（予備）','1組','KMC X11 付属分とは別に予備を持っておく','chain'],
+  ['check','駆動','チェーンウォッチャー','1個','1× はチェーン落ちしやすい。必要と判断したら','crank'],
+  ['need','制動','ブレーキホース SM-BH90 系','前後分','一体型ハンドルの内装で長さを取り直すため新品を推奨','hose'],
+  ['need','制動','オリーブ＋コネクティングインサート','前後分','ホースを切るたびに新品が必要。予備を多めに','hose'],
+  ['need','制動','シマノ ミネラルオイル','1本','DOT 系フルードとは絶対に混用しない','brakeF'],
+  ['need','制動','ブリードキット（ファンネル・アダプタ）','1式','ST-RX815 のファンネル形状に合うもの','leverR'],
+  ['check','制動','ブレーキパッド（予備）','1組','オイルが付着したら再生不可。予備があると安心','brakeF'],
+  ['check','制動','前輪用ローター／ロックリング','1組','後輪は装着済み。前輪側の有無を確認','rotorF'],
+  ['need','電装','TL-EW02（プラグ工具）','1個','EW-SD50 は指では確実に挿さらない。未挿入は接触不良の主原因','jc41'],
+  ['need','電装','充電ケーブル SM-BCR2 相当','1本','EW-RS910 の充電ポート経由で E-TUBE PROJECT に接続する','rs910'],
+  ['need','電装','内装用スポンジ／結束バンド','適量','フレーム内の余長を固定し、走行中のカタつきを防ぐ','jc41'],
+  ['check','ヘッド','スターファングルナット（1-1/8・アルミコラム用）','1個','圧入工具は入手済み。ナット自体の在庫を確認','fork'],
+  ['need','タイヤ','チューブレスシーラント','前輪分','ビードを上げてから規定量を注入','wheelF'],
+  ['check','タイヤ','リムテープ／バルブコア（予備）','適量','エア漏れ時の交換用','wheelF'],
+  ['need','仕上げ','バーテープ','1組','試走でポジションを確定してから巻く','cockpit'],
+  ['need','消耗','グリス（プレミアム／ファイバーグリップ）','各1','BB・コラム・シートポストなど','frame'],
+];
+
+/* ---- 工具リスト ---------------------------------------------------------
+   各工程の tools を集計し、分類と入手状況を付ける。
+   flag: 'own'＝入手済み／'spec'＝専用工具（無ければ手配）／''＝汎用          */
+const TOOL_INFO={
+  'ワークスタンド':['基本','spec'],
+  'デジタルカメラ（記録用）':['基本',''],
+  '保護具':['基本',''],
+  '空気圧計':['基本',''],
+  'ノギス':['基本',''],
+  '六角レンチ各種':['締結',''],
+  '六角レンチ':['締結',''],
+  '4/5mm 六角':['締結',''],
+  '5mm 六角':['締結',''],
+  '2mm 六角（B調整）':['締結',''],
+  '2.5mm 六角':['締結',''],
+  '7mm レンチ':['締結',''],
+  'トルクレンチ':['締結','spec'],
+  'プラグ工具 TL-EW02':['電装（Di2）','spec'],
+  '内装配線ライナー':['電装（Di2）','spec'],
+  '内装ライナー':['電装（Di2）','spec'],
+  '結束バンド／スポンジ':['電装（Di2）',''],
+  '内装用スポンジ／結束バンド':['電装（Di2）',''],
+  'PC またはスマートフォン':['電装（Di2）',''],
+  '充電ケーブル SM-BCR2 相当':['電装（Di2）','spec'],
+  'E-TUBE PROJECT':['電装（Di2）',''],
+  'ホースカッター':['油圧ブレーキ','spec'],
+  'オリーブ圧入工具':['油圧ブレーキ','spec'],
+  '8mm フレアナットレンチ':['油圧ブレーキ','spec'],
+  'ブリードキット':['油圧ブレーキ','spec'],
+  'シマノ ミネラルオイル':['油圧ブレーキ',''],
+  'クランク工具':['駆動系','spec'],
+  'BB工具':['駆動系','spec'],
+  'ハンガー修正工具':['駆動系','spec'],
+  'チェーンカッター':['駆動系','spec'],
+  'ミッシングリンクプライヤー':['駆動系','spec'],
+  'チェーンチェッカー':['駆動系',''],
+  'フロアポンプ＋ブースタータンク（またはコンプレッサー）':['ホイール／タイヤ','spec'],
+  '石けん水':['ホイール／タイヤ',''],
+  'シーラント':['ホイール／タイヤ',''],
+  'バルブコア回し':['ホイール／タイヤ',''],
+  'タイヤレバー':['ホイール／タイヤ',''],
+  'TL-LR15（確認用）':['ホイール／タイヤ','spec'],
+  'ソーガイド':['ヘッド／仕上げ','spec'],
+  '金切り鋸':['ヘッド／仕上げ',''],
+  'ヤスリ':['ヘッド／仕上げ',''],
+  'スターファングルナット圧入工具（HOUSON・入手済み）':['ヘッド／仕上げ','own'],
+  'マスキングテープ':['ヘッド／仕上げ',''],
+  'バーテープ':['ヘッド／仕上げ',''],
+  'パーツクリーナー':['消耗品・副資材',''],
+  'ウエス':['消耗品・副資材',''],
+  '養生テープ':['消耗品・副資材',''],
+  'グリス':['消耗品・副資材',''],
+};
+const TOOL_CATS=['基本','締結','電装（Di2）','油圧ブレーキ','駆動系','ホイール／タイヤ','ヘッド／仕上げ','消耗品・副資材','その他'];
+
+/* ---- メーカーマニュアル ------------------------------------------------
+   URL は 2026-08 時点のもの。シマノはリビジョンが上がると番号が変わるため、
+   リンク切れのときは si.shimano.com で型番・文書番号を検索してください。     */
+const MANUALS=[
+  {id:'rx815',cat:'シフター／レバー',n:'ST-RX815（GRX Di2 STI）',
+   doc:'DM-RX815-03 ディーラーマニュアル',
+   url:'https://si.shimano.com/en/pdfs/dm/RX815/DM-RX815-03-ENG.pdf',
+   note:'英語版。日本語版は si.shimano.com で「RX815」を検索。レバー本体・ホース接続・ブリーディング'},
+  {id:'m8050',cat:'リアディレイラー',n:'RD-M8050-GS（XT Di2）',
+   doc:'DM-M8050-08 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/M8050/DM-M8050-08-JPN.pdf',
+   note:'RD 取付・B調整・最大ロー46T・E-TUBE でのアジャスト'},
+  {id:'r8050',cat:'Di2 配線・ジャンクション',n:'SM-JC41／EW-SD50／BT-DN110／EW-RS910',
+   doc:'DM-R8050-05 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/R8050/DM-R8050-05-JPN.pdf',
+   note:'内装タイプの配線図・ジャンクション接続・バッテリー取付。配線作業はまずこれ'},
+  {id:'rbwu',cat:'ワイヤレス',n:'EW-WU111',
+   doc:'DM-RBWU001-05 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/RBWU001/DM-RBWU001-05-JPN.pdf',
+   note:'取付位置と通信に関する注意'},
+  {id:'wu-um',cat:'ワイヤレス',n:'EW-WU111（ユーザーマニュアル）',
+   doc:'UM-2710B-000（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/um/2710B/UM-2710B-000-JPN.pdf',
+   note:'ペアリングと表示の確認'},
+  {id:'gadbr',cat:'油圧ディスクブレーキ',n:'ブリーディング・ホース処理',
+   doc:'DM-GADBR01-06 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/GADBR01/DM-GADBR01-06-JPN.pdf',
+   note:'ミネラルオイル系の手順・注意事項'},
+  {id:'casg',cat:'カセット／フリーボディ',n:'ZTTO 11-46T 装着まわりの共通手順',
+   doc:'DM-CASG001-05 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/CASG001/DM-CASG001-05-JPN.pdf',
+   note:'ロックリングのトルクとスペーサーの考え方（社外カセットは付属指示を優先）'},
+  {id:'cn',cat:'チェーン',n:'11速チェーンの切断・接続',
+   doc:'DM-CN0002-00 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/CN0002/DM-CN0002-00-JPN.pdf',
+   note:'チェーン長の決め方（KMC X11 は KMC の指示を優先）'},
+  {id:'gn',cat:'共通',n:'基本作業書（トルク・共通作業）',
+   doc:'DM-GN0001-26 ディーラーマニュアル（日本語）',
+   url:'https://si.shimano.com/ja/pdfs/dm/GN0001/DM-GN0001-26-JPN.pdf',
+   note:'締付トルクの原則。本アプリのトルク値は参考値なので必ずこちらを優先'},
+  {id:'etube',cat:'ソフトウェア',n:'E-TUBE PROJECT',
+   doc:'シマノ公式ページ（ダウンロード・対応表）',
+   url:'https://bike.shimano.com/ja-JP/e-tube/project.html',
+   note:'ファームウェア更新・スイッチ割当・アジャストモード'},
+  {id:'si',cat:'共通',n:'シマノ SI（マニュアル検索）',
+   doc:'si.shimano.com',
+   url:'https://si.shimano.com/',
+   note:'型番で検索すれば最新リビジョンが出ます。リンク切れ時はここから'},
+  {id:'baracan',cat:'ハンドル',n:'baracan MISSION 一体型ハンドル',
+   doc:'製品ページ（仕様・締付トルク）',
+   url:'https://trycle.thebase.in/items/111297703',
+   note:'カーボン一体型。締付トルクはメーカー指定を厳守'},
+  {id:'kmc',cat:'チェーン',n:'KMC ミッシングリンク',
+   doc:'取付ガイド（KMC 公式）',
+   url:'https://www.kmcchain.com/en/teach/missinglink',
+   note:'再使用可否と向き'},
+  {id:'trek',cat:'車体',n:'Trek Domane+ AL 5',
+   doc:'製品ページ（Trek Japan）',
+   url:'https://www.trekbikes.com/jp/ja_JP/%E3%83%90%E3%82%A4%E3%82%AF/e-bike/e-road/domane-al-5/p/5270325/',
+   note:'e-bike システム側の取り扱いは Trek／HyDrive の説明書に従う'},
+];
+/* 工程 → 参照すべきマニュアル */
+const STEP_MAN={
+  prep:['etube','gn'], wheel:['casg','gn'], crank:['gn'], rd:['m8050','gn'],
+  cockpit:['rx815','baracan'], wiring:['r8050','rx815'], junction:['r8050','rbwu'],
+  brake:['gadbr','rx815'], chain:['cn','kmc'], etube:['etube','m8050','rbwu'],
+  testfit:['gn'], steerer:['baracan','gn'], final:['gn','trek']
+};
 const SPEC=[
   ['車体','Trek Domane+ AL 5 ／ size 54'],
   ['駆動','HyDrive リアハブモーター（後輪ハブ内蔵）'],
@@ -1641,6 +1858,12 @@ function renderStep(){
     h+='<h3 class="sec">注意点・コツ</h3>'+
        s.notes.map(n=>`<div class="note ${n[0]==='danger'?'danger':n[0]==='info'?'info':''}"><b>${esc(n[1])}</b>${esc(n[2])}</div>`).join('');
   }
+  const mans=(STEP_MAN[s.id]||[]).map(id=>MANUALS.find(m=>m.id===id)).filter(Boolean);
+  if(mans.length){
+    h+='<h3 class="sec">関連マニュアル</h3><div class="pillrow">'+
+       mans.map(m=>manLink(m,'linkpill')).join('')+'</div>'+
+       '<p class="mini">メーカーの一次資料が優先です。本アプリのトルク値・寸法は参考値です。</p>';
+  }
   h+=`<h3 class="sec">3D表示</h3>
       <div class="pillrow">
         <button class="focusbtn" id="refocus">この工程の部位に視点を合わせる</button>
@@ -1728,28 +1951,91 @@ $('#btnPrint').onclick=()=>window.print();
 $('#btnClear').onclick=()=>{ if(confirm('チェック状況をすべて消去します。よろしいですか？')){done={};saveDone();renderChips();renderStep();} };
 
 /* --- 部品タブ --- */
+/** 指定グループだけを点灯させて3Dで寄る */
+function focusGroup(g,name){
+  if(g.startsWith('cable_')&&!showWire){ showWire=true; $('#btnWire').classList.add('on'); }
+  clearReveal();
+  activeGroups=new Set([g]);
+  activeLabels=[{g,t:name}];
+  const a=ANCHORS[g]||ANCHORS.frame;
+  const v=fitView(cam.az,cam.el,[g],1.6);
+  flyTo(v||{az:cam.az,el:cam.el,dist:760,target:[a.x,a.y,a.z]});
+  fitted=false;
+  $('#legend').innerHTML='<span class="vchip">'+esc(name)+'</span>';
+}
 function renderParts(){
   $('#partlist').innerHTML=PARTS.map(p=>
     `<div class="lenrow"><div><b>${esc(p[1])}</b><div class="mini">${esc(p[0])}／${esc(p[3])}</div></div>
      <button class="focusbtn" data-g="${p[2]}" style="align-self:center">3D</button></div>`).join('');
   $('#partlist').querySelectorAll('button').forEach(b=>{
-    b.onclick=()=>{
-      activeGroups=new Set([b.dataset.g]);
-      const name=b.parentElement.querySelector('b').textContent;
-      activeLabels=[{g:b.dataset.g,t:name}];
-      const a=ANCHORS[b.dataset.g]||ANCHORS.frame;
-      const v=fitView(cam.az,cam.el,[b.dataset.g],1.6);
-      flyTo(v||{az:cam.az,el:cam.el,dist:760,target:[a.x,a.y,a.z]});
-      fitted=false;
-      $('#legend').innerHTML='<span class="vchip">'+name+'</span>';
-    };
+    b.onclick=()=>focusGroup(b.dataset.g,b.parentElement.querySelector('b').textContent);
   });
   $('#todolist').innerHTML=TODO.map(t=>`<li>${esc(t)}</li>`).join('');
+  renderNeed(); renderTools(); renderManuals();
   $('#statusdate').textContent=STATUS_DATE+' 時点';
   $('#statuslist').innerHTML=STATUS.map(r=>
     `<div class="lenrow"><div><span class="tag ${r[0]==='done'?'ok':'warn'}">${r[0]==='done'?'完了':'未実施'}</span> ${esc(r[1])}</div></div>`).join('');
   $('#spectable').innerHTML=SPEC.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('');
   $('#geotable').innerHTML=GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('');
+}
+
+/* --- 不足部品リスト --- */
+/** 配線タブの算出結果（買い足しの目安）を部品として並べる */
+function cableShortage(){
+  return CABLES.map(c=>{
+    const L=Math.round(pathLen(CABLE_PATHS[c.id]));
+    const rec=recommendLen(L);
+    return rec>c.spec ? ['need','電装',`EW-SD50 ${rec} mm`,'×1',
+      `${c.n} ${c.from} → ${c.to}：手持ち ${c.spec} では不足の見込み（モデル経路 約${L} mm）。実測で最終確定`,'cable_'+c.id] : null;
+  }).filter(Boolean);
+}
+function renderNeed(){
+  const rows=NEED.concat(cableShortage());
+  const need=rows.filter(r=>r[0]==='need').length, chk=rows.length-need;
+  $('#needdate').textContent=`${STATUS_DATE} 時点／要手配 ${need}件・要確認 ${chk}件`;
+  $('#needlist').innerHTML=rows.map(r=>
+    `<div class="lenrow"><div>
+       <span class="tag ${r[0]==='need'?'ng':'warn'}">${r[0]==='need'?'要手配':'要確認'}</span>
+       <b>${esc(r[2])}</b> <span class="mini" style="display:inline">${esc(r[1])}／${esc(r[3])}</span>
+       <div class="mini">${esc(r[4])}</div></div>
+     ${r[5]?`<div class="r"><button class="focusbtn sm" data-g="${r[5]}">3Dで見る</button></div>`:''}</div>`).join('');
+  $('#needlist').querySelectorAll('button[data-g]').forEach(b=>{
+    b.onclick=()=>focusGroup(b.dataset.g,b.closest('.lenrow').querySelector('b').textContent);
+  });
+  $('#neednote').innerHTML='<b>このリストの根拠</b>実車写真から確認できた現況と、資料に記載のない項目（チェーンリング歯数など）から作成しています。'+
+    'EW-SD50 の行は配線タブの取付位置の選択に連動します。<b>手持ちの在庫と照合し、発注前に実測してください。</b>';
+}
+/* --- 工具リスト --- */
+function renderTools(){
+  const map=new Map();                       // 工具名 → 使用するSTEP番号
+  STEPS.forEach((s,i)=>(s.tools||[]).forEach(t=>{
+    if(!map.has(t)) map.set(t,[]);
+    map.get(t).push(i);
+  }));
+  const byCat={};
+  for(const [name,steps] of map){
+    const info=TOOL_INFO[name]||['その他',''];
+    (byCat[info[0]]=byCat[info[0]]||[]).push({name,steps,flag:info[1]});
+  }
+  let h='';
+  for(const cat of TOOL_CATS){
+    const list=byCat[cat]; if(!list||!list.length) continue;
+    h+=`<h3 class="sec">${esc(cat)}</h3>`;
+    h+=list.map(t=>`<div class="lenrow"><div><b>${esc(t.name)}</b>${
+      t.flag==='spec'?'<span class="tag spec">専用</span>':t.flag==='own'?'<span class="tag own">入手済み</span>':''
+    }</div><div class="r steps">STEP ${t.steps.join(', ')}</div></div>`).join('');
+  }
+  $('#toollist').innerHTML=h;
+}
+/* --- メーカーマニュアル --- */
+function manLink(m,cls){
+  return `<a class="${cls}" href="${esc(m.url)}" target="_blank" rel="noopener">${esc(cls==='linkpill'?m.n:m.doc)}</a>`;
+}
+function renderManuals(){
+  $('#manlist').innerHTML=MANUALS.map(m=>
+    `<div class="lenrow"><div><b>${esc(m.n)}</b>
+       <div class="mini">${esc(m.cat)}／${manLink(m,'link')}</div>
+       <div class="mini">${esc(m.note)}</div></div></div>`).join('');
 }
 
 /* --- 配線タブ --- */
@@ -1798,7 +2084,7 @@ function renderLengths(){
     v.innerHTML=`<b>成立見込み</b>全6本に余裕があります（モデル概算）。`;
 }
 function onLayoutChange(){
-  buildCables(); renderLengths(); buildPrint();
+  buildCables(); renderLengths(); renderNeed(); buildScenes(); buildPrint();
   activeGroups=new Set(['cable_c1','cable_c2','cable_c3','cable_c4','cable_c5','cable_c6',
                         'jc41','rs910','rs910dt','batt','wu111']);
   activeLabels=[{g:'jc41',t:'SM-JC41'},{g:'rs910',t:'EW-RS910'},{g:'rs910dt',t:'EW-RS910'},
@@ -1879,13 +2165,34 @@ const WIRE_SVG=`
   <path class="ln" d="M70 314 C 70 420, 130 424, 210 426"/>
   <text class="len" x="16" y="400">⑤ 600</text>
 
-  <text class="sb" x="10" y="466">①〜⑥＝配線番号（3D表示と共通）／数値＝EW-SD50 指定長 mm／右上＝ポート使用数</text>
+  <text class="sb" x="10" y="466">①〜⑥＝接続順（3D・解説動画と共通）／数値＝EW-SD50 指定長 mm／右上＝ポート使用数</text>
 </svg>`;
 $('#wirediagram').innerHTML=WIRE_SVG;
 
 /* ============================================================
    8. 印刷用シート（A4縦）
    ============================================================ */
+/** 印刷用の工具リスト（分類ごと・使用STEP付き） */
+function printTools(){
+  const map=new Map();
+  STEPS.forEach((s,i)=>(s.tools||[]).forEach(t=>{
+    if(!map.has(t)) map.set(t,[]);
+    map.get(t).push(i);
+  }));
+  const byCat={};
+  for(const [name,steps] of map){
+    const info=TOOL_INFO[name]||['その他',''];
+    (byCat[info[0]]=byCat[info[0]]||[]).push({name,steps,flag:info[1]});
+  }
+  let h='<table><tr><th style="width:20%">分類</th><th style="width:auto">工具（□＝準備できたらチェック／★＝専用工具）</th></tr>';
+  for(const cat of TOOL_CATS){
+    const list=byCat[cat]; if(!list||!list.length) continue;
+    h+=`<tr><th>${esc(cat)}</th><td>${list.map(t=>
+      `<span class="chk"></span>${t.flag==='spec'?'★':''}${esc(t.name)}<span style="font-size:7.5pt">（STEP ${t.steps.join(',')}）</span>`
+    ).join('　')}</td></tr>`;
+  }
+  return h+'</table>';
+}
 function buildPrint(){
   let h=`<h1>Domane+ AL5 ／ Di2化 施工資料</h1>
   <div style="font-size:8.5pt">Trek Domane+ AL 5（size 54・HyDrive リアハブモーター）／ 1×11 化 ／ 作成: 施工手順アプリ出力</div>
@@ -1897,21 +2204,33 @@ function buildPrint(){
   <tr><th>合計</th><td>2,300 mm</td></tr></table>
   <h2>3. 部品リスト</h2><table><tr><th>区分</th><th style="width:auto">品名・仕様</th></tr>
   ${PARTS.map(p=>`<tr><th>${esc(p[0])}</th><td>${esc(p[1])}（${esc(p[3])}）</td></tr>`).join('')}</table>
-  <h2 class="pgbreak">4. 施工手順</h2>`;
+  <h2>4. 不足部品リスト（${esc(STATUS_DATE)} 時点）</h2>
+  <table><tr><th style="width:14%">状態</th><th style="width:16%">区分</th><th style="width:auto">品名・数量・補足</th></tr>
+  ${NEED.concat(cableShortage()).map(r=>
+    `<tr><td>${r[0]==='need'?'要手配':'要確認'}</td><td>${esc(r[1])}</td>
+     <td><span class="chk"></span><b>${esc(r[2])}</b>　${esc(r[3])}<br><span style="font-size:8pt">${esc(r[4])}</span></td></tr>`).join('')}</table>
+  <h2>5. 工具リスト</h2>${printTools()}
+  <h2 class="pgbreak">6. 施工手順</h2>`;
   STEPS.forEach((s,i)=>{
     h+=`<div class="pstep"><h3>STEP ${i}　${esc(s.t)}　<span style="font-weight:400;font-size:8.5pt">（${esc(s.s)}）</span></h3>
     <div style="font-size:8.5pt;margin-bottom:1mm">目的：${esc(s.goal)}</div><ul>`;
     s.work.forEach(w=>h+=`<li><span class="chk"></span>${esc(w)}</li>`);
     h+='</ul>';
     if(s.tools&&s.tools.length) h+=`<div style="font-size:8.5pt">工具：${s.tools.map(esc).join('／')}</div>`;
+    const pm=(STEP_MAN[s.id]||[]).map(id=>MANUALS.find(m=>m.id===id)).filter(Boolean);
+    if(pm.length) h+=`<div style="font-size:8pt">マニュアル：${pm.map(m=>esc(m.n)+'（'+esc(m.doc)+'）').join('／')}</div>`;
     if(s.torque&&s.torque.length) h+=`<div style="font-size:8.5pt">トルク（参考）：${s.torque.map(t=>esc(t[0])+' '+esc(t[1])).join('／')}</div>`;
     if(s.notes) s.notes.forEach(n=>h+=`<div class="pnote"><b>${esc(n[1])}</b>：${esc(n[2])}</div>`);
     h+='</div>';
   });
-  h+=`<h2>5. 現況（${esc(STATUS_DATE)} 時点・実車写真より）</h2><ul>${
+  h+=`<h2>7. 現況（${esc(STATUS_DATE)} 時点・実車写真より）</h2><ul>${
     STATUS.map(r=>`<li>[${r[0]==='done'?'完了':'未実施'}] ${esc(r[1])}</li>`).join('')}</ul>
-  <h2>6. 要確認・未確定事項</h2><ul>${TODO.map(t=>`<li><span class="chk"></span>${esc(t)}</li>`).join('')}</ul>
-  <h2>7. ジオメトリ（参考値・size 54）</h2><table>${GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')}</table>
+  <h2>8. 要確認・未確定事項</h2><ul>${TODO.map(t=>`<li><span class="chk"></span>${esc(t)}</li>`).join('')}</ul>
+  <h2>9. メーカーマニュアル（URL・2026-08 時点）</h2>
+  <table><tr><th style="width:26%">対象</th><th style="width:auto">文書 ／ URL</th></tr>
+  ${MANUALS.map(m=>`<tr><th>${esc(m.n)}</th><td>${esc(m.doc)}<br><span style="font-size:7.5pt">${esc(m.url)}</span></td></tr>`).join('')}</table>
+  <div style="font-size:8pt">※ シマノはリビジョン更新で文書番号が変わります。リンク切れのときは si.shimano.com で型番を検索してください。</div>
+  <h2>10. ジオメトリ（参考値・size 54）</h2><table>${GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')}</table>
   <div style="font-size:8pt;margin-top:3mm">※ トルク値・寸法はすべて参考値です。必ず各メーカーの最新ディーラーマニュアルおよび実測値を優先してください。</div>`;
   $('#printsheet').innerHTML=h;
 }
@@ -1928,7 +2247,6 @@ function buildScenes(){
     const anim =
       st.id==='wheel' ? 'spin' :
       st.id==='chain'||st.id==='crank' ? 'drive' :
-      st.id==='wiring' ? 'cable' :
       (st.id==='rd'||st.id==='junction'||st.id==='cockpit'||st.id==='brake') ? 'install' :
       'orbit';
     return {
@@ -1938,44 +2256,118 @@ function buildScenes(){
       title: st.t, sub: st.s, lines: st.work
     };
   });
+  // 配線工程は「1本ずつ、上流から順につなぐ」流れが分かるようにシーンを割る
+  const wi=STEPS.findIndex(s=>s.id==='wiring');
+  if(wi>=0){
+    const st=STEPS[wi];
+    const seq=[];
+    seq.push({
+      i:wi, anim:'cableAll', wire:true, connected:0, dur:8,
+      az:26, el:16, fit:['*'],
+      title:'Di2 配線 ── 接続の順番',
+      sub:'レバー → EW-RS910 → SM-JC41 → 各ユニット（上流から下流へ）',
+      lines:CABLES.map(c=>`${c.n} ${c.from} → ${c.to}（EW-SD50 ${c.spec}）`),
+      groups:['cable_c1','cable_c2','cable_c3','cable_c4','cable_c5','cable_c6',
+              'jc41','rs910','rs910dt','batt','wu111','leverL','leverR','rd'],
+      labels:[['leverR','①②から'],['jc41','SM-JC41 で3分岐'],['rd','⑤ 最後にRD']]
+    });
+    CABLES.forEach((c,k)=>{
+      const toG = c.toG==='rs910'&&RS910_MODE==='dt' ? 'rs910dt' : c.toG;
+      const fromG = c.fromG==='rs910'&&RS910_MODE==='dt' ? 'rs910dt' : c.fromG;
+      seq.push({
+        i:wi, anim:'cableOne', wire:true, cable:k, connected:k, dur:8,
+        az: k<=1?52:(k===2?34:-24), el: k<=1?20:14,
+        fit:['cable_'+c.id,fromG,toG],
+        title:`${c.n} ${c.from} → ${c.to}`,
+        sub:`EW-SD50 ${c.spec} mm ／ ${c.via}`,
+        lines:c.how,
+        groups:['cable_'+c.id,fromG,toG],
+        labels:[[fromG,c.from],['cable_'+c.id,`${c.n} ${c.spec}`],[toG,c.to]]
+      });
+    });
+    seq.push({
+      i:wi, anim:'cableCheck', wire:true, connected:6, dur:9,
+      az:-16, el:16, fit:['*'],
+      title:'6本すべて接続 ── 最終確認',
+      sub:'全コネクタを TL-EW02 で確実に挿し、余長を固定する',
+      lines:['全コネクタが「カチッ」と鳴るまで挿さっているか確認する',
+             'ハンドル切れ角いっぱいで配線が突っ張らないか確認する',
+             'フレーム内の余長をスポンジ・結束バンドで固定する',
+             'EW-RS910 の充電ポートから E-TUBE で全ユニットの認識を確認する'],
+      groups:['cable_c1','cable_c2','cable_c3','cable_c4','cable_c5','cable_c6',
+              'jc41','rs910','rs910dt','batt','wu111','leverL','leverR','rd'],
+      labels:[['jc41','SM-JC41 4/4使用'],['rs910','充電ポート'],['batt','BT-DN110']]
+    });
+    SCENES.splice(wi,1,...seq);
+  }
 }
+/** 工程番号 → その工程の先頭シーン */
+const sceneOfStep=i=>Math.max(0,SCENES.findIndex(s=>s.i===i));
 /** シーン開始：カメラの基準位置と強調対象を決める */
 function startScene(i){
   PLAY.step=clamp(i,0,SCENES.length-1); PLAY.t=0;
   const sc=SCENES[PLAY.step], st=STEPS[sc.i];
-  cur=sc.i; renderChips(); renderStep();
-  activeGroups=new Set(st.g);
-  activeLabels=(st.labels||[]).map(l=>({g:l[0],t:l[1]}));
+  if(cur!==sc.i){ cur=sc.i; renderChips(); renderStep(); }
+  activeGroups=new Set(sc.groups||st.g);
+  activeLabels=(sc.labels||st.labels||[]).map(l=>({g:l[0],t:l[1]}));
   $('#legend').innerHTML='';
+  // 画角計算は全配線が出ている状態で行う（伸ばしている途中だと対象が拾えない）
+  clearReveal();
   // カメラは ±16° スイープするので、両端で収まる距離を採る
   const a=fitView(sc.az-16,sc.el,sc.fit,1.12), b2=fitView(sc.az+16,sc.el,sc.fit,1.12);
   sc.base = (a&&b2) ? {az:sc.az, el:sc.el, dist:Math.max(a.dist,b2.dist),
                        target:[(a.target[0]+b2.target[0])/2,(a.target[1]+b2.target[1])/2,(a.target[2]+b2.target[2])/2]}
                     : (a||b2||{az:sc.az,el:sc.el,dist:cam.dist,target:[cam.tx,cam.ty,cam.tz]});
   camT=null;
+  applyScene(sc,0);
   updatePlayerUI();
+}
+/** 配線の表示状態：k本目まで接続済み、cur本目は割合 r で伸ばす */
+function revealUpTo(k,cur,r){
+  const map={};
+  CABLES.forEach((c,j)=>{ map[c.id] = j<k?1 : (j===cur? clamp(r,0,1) : 0); });
+  setReveal(map, (cur>=0&&r<1)?CABLES[cur].id:null);
 }
 /** 毎フレームのシーン適用 */
 function applyScene(sc,p){
   const b=sc.base;
   cam.az=b.az-16+32*p; cam.el=b.el; cam.dist=b.dist*(1.06-0.06*Math.min(1,p*2));
   cam.tx=b.target[0]; cam.ty=b.target[1]; cam.tz=b.target[2];
-  XF=null; CABLE_REVEAL=null;
+  XF=null;
   const ease=t=>1-Math.pow(1-clamp(t,0,1),3);
+  if(!sc.wire) clearReveal();
   if(sc.anim==='spin'||sc.anim==='drive'){
     const a=p*Math.PI*2*1.2;
     XF={};
     for(const g of ['wheelR','motor','rotorR','cassette']) XF[g]={ang:-a,cx:REAR.x,cy:REAR.y};
     for(const g of ['wheelF','rotorF'])                    XF[g]={ang:-a,cx:FRONT.x,cy:FRONT.y};
     if(sc.anim==='drive') XF.crank={ang:-a,cx:0,cy:0};
-  }else if(sc.anim==='cable'){
-    // 6本を順番に伸ばしていく
-    CABLE_REVEAL={};
+  }else if(sc.anim==='cableAll'){
+    // 全体像：6本を上流から順に、少し重ねながら一気に伸ばす
     const n=CABLES.length, span=1/n;
+    const map={}; let tip=-1;
     CABLES.forEach((c,k)=>{
-      const local=(p-k*span*0.92)/span;
-      CABLE_REVEAL[c.id]=clamp(local,0,1);
+      const f=clamp((p-k*span*0.92)/span,0,1);
+      map[c.id]=f;
+      if(f>0&&f<1) tip=k;
     });
+    setReveal(map, tip>=0?CABLES[tip].id:null);
+  }else if(sc.anim==='cableOne'){
+    // 1本だけを、上流のコネクタから下流のコネクタへ向けて伸ばす。
+    // カメラは伸びていく先端を追い、最後に引いて経路全体を見せる
+    const k=sc.cable, c=CABLES[k], path=CABLE_PATHS[c.id];
+    const r=clamp((p-0.06)/0.68,0,1);
+    revealUpTo(k,k,Math.max(r,0.015));
+    const idx=clamp(Math.round((path.length-1)*r),1,path.length-1);
+    const tip=path[idx];
+    const pull=ease(clamp((p-0.80)/0.20,0,1));       // 終盤は全体像へ引く
+    cam.az=b.az-9+18*p;
+    cam.dist=lerp(clamp(b.dist*0.66,380,4200), b.dist, pull);
+    cam.tx=lerp(tip.x,b.target[0],pull);
+    cam.ty=lerp(tip.y,b.target[1],pull);
+    cam.tz=lerp(tip.z,b.target[2],pull);
+  }else if(sc.anim==='cableCheck'){
+    revealUpTo(CABLES.length,-1,1);
   }else if(sc.anim==='install'){
     // 強調部品が外側から所定位置へ入ってくる
     const k=1-ease(Math.min(1,p*1.6));
@@ -1990,6 +2382,41 @@ function applyScene(sc,p){
     }
   }
 }
+/** 現在のフォントで幅に収まるよう末尾を詰める */
+function fitText(s,max){
+  let t=String(s);
+  if(ctx.measureText(t).width<=max) return t;
+  while(t.length>4&&ctx.measureText(t+'…').width>max) t=t.slice(0,-1);
+  return t+'…';
+}
+/** 画面上部の「接続順」インジケータ。済＝塗り／接続中＝点滅／未＝枠のみ */
+function drawWireOrder(sc,p){
+  const n=CABLES.length, w=30, h=22, gap=5;
+  const total=n*w+(n-1)*gap;
+  let x=Math.max(10,(W-total)/2), y=14;
+  ctx.fillStyle='rgba(6,10,14,.55)';
+  roundRect(x-8,y-6,total+16,h+12,10); ctx.fill();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(let k=0;k<n;k++){
+    const c=CABLES[k];
+    const cur = sc.cable===k || (sc.anim==='cableAll' && Math.floor(clamp(p,0,.999)*n)===k);
+    const done = sc.connected>k || (sc.anim==='cableAll'&&Math.floor(clamp(p,0,.999)*n)>k) || sc.anim==='cableCheck';
+    ctx.globalAlpha = cur?1:(done?0.95:0.34);
+    if(done||cur){ ctx.fillStyle=c.color; roundRect(x,y,w,h,7); ctx.fill(); }
+    ctx.strokeStyle=c.color; ctx.lineWidth=cur?2.4:1.2;
+    roundRect(x,y,w,h,7); ctx.stroke();
+    ctx.fillStyle=(done||cur)?'#0b1015':c.color;
+    ctx.font='800 13px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
+    ctx.fillText(c.n,x+w/2,y+h/2+.5);
+    if(cur){                                   // 接続中は下に長さを出す
+      ctx.globalAlpha=1; ctx.fillStyle='#fff';
+      ctx.font='700 10px ui-monospace,monospace';
+      ctx.fillText(c.spec,x+w/2,y+h+9);
+    }
+    x+=w+gap;
+  }
+  ctx.globalAlpha=1; ctx.textAlign='left';
+}
 /** 画面下に出す字幕とシークバー（録画にもそのまま入る） */
 function drawHUD(){
   const sc=SCENES[PLAY.step]; if(!sc) return;
@@ -2001,9 +2428,12 @@ function drawHUD(){
   ctx.fillStyle=g; ctx.fillRect(0,y-16,W,bh+16);
   ctx.textBaseline='middle'; ctx.textAlign='left';
   ctx.fillStyle='#ff7a63'; ctx.font='800 11px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
-  ctx.fillText('STEP '+sc.i+' / '+(SCENES.length-1), 12, y+4);
+  let hd='STEP '+sc.i+' / '+(STEPS.length-1);
+  if(sc.wire&&sc.cable!==undefined) hd+='　配線 '+(sc.cable+1)+' / '+CABLES.length+' 本目';
+  ctx.fillText(hd, 12, y+4);
   ctx.fillStyle='#fff'; ctx.font='800 15px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
-  ctx.fillText(sc.title, 12, y+24);
+  ctx.fillText(fitText(sc.title,W-24), 12, y+24);
+  if(sc.wire) drawWireOrder(sc,p);
   // 作業項目を順に送る
   const head=0.20, n=sc.lines.length;
   let line=sc.sub;
@@ -2012,10 +2442,7 @@ function drawHUD(){
     line='・'+sc.lines[k];
   }
   ctx.fillStyle='#c3ced9'; ctx.font='400 12px -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif';
-  let txt=line;
-  while(ctx.measureText(txt).width>W-24&&txt.length>4) txt=txt.slice(0,-2);
-  if(txt!==line) txt=txt.slice(0,-1)+'…';
-  ctx.fillText(txt, 12, y+46);
+  ctx.fillText(fitText(line,W-24), 12, y+46);
   // 全体の進捗
   const done=(PLAY.step+p)/SCENES.length;
   const by=y+bh-3;
@@ -2032,15 +2459,17 @@ function playTick(dtMs){
   applyScene(sc,PLAY.t/sc.dur);
   dirty=true;
 }
+/** from＝工程番号（STEP）。配線工程は複数シーンに割れているので先頭シーンへ */
 function startPlay(from){
   if(!SCENES.length) buildScenes();
   document.body.classList.remove('viewer-collapsed');
   PLAY.on=true; PLAY.last=performance.now(); spin=false; syncSpin();
+  if(!showWire){ showWire=true; $('#btnWire').classList.add('on'); }   // 配線が見えないと流れが追えない
   document.body.classList.add('playing');
-  startScene(from!==undefined?from:cur);
+  startScene(sceneOfStep(from!==undefined?from:cur));
 }
 function stopPlay(){
-  PLAY.on=false; XF=null; CABLE_REVEAL=null;
+  PLAY.on=false; XF=null; clearReveal();
   document.body.classList.remove('playing');
   if(PLAY.rec&&PLAY.rec.state==='recording') stopRec();
   updatePlayerUI(); applyView();
