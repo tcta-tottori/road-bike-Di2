@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#111820">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Di2施工">
+<meta name="description" content="Trek Domane+ AL 5 の 1×11 Di2 化を3Dで確認しながら進める施工手順アプリ">
 <title>Domane+ AL5 Di2化 施工手順（3D）</title>
 <style>
 /* ============================================================
@@ -47,7 +54,22 @@ body{
   grid-template-rows:auto minmax(0,46dvh) minmax(0,1fr);
   grid-template-columns:minmax(0,1fr);
   height:100dvh; width:100%; max-width:100%; overflow:hidden;
+  transition:grid-template-rows .26s cubic-bezier(.4,0,.2,1);
 }
+/* 本文を読むときは3Dを畳んで全画面に */
+body.viewer-collapsed .app{grid-template-rows:auto 0dvh minmax(0,1fr)}
+body.viewer-collapsed .viewer{opacity:0}
+.viewer{transition:opacity .2s}
+.fab{
+  position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom) + 70px); z-index:30;
+  width:54px; height:54px; border-radius:50%; border:0; cursor:pointer;
+  background:var(--accent2); color:#fff; font-family:inherit; font-size:11px; font-weight:800;
+  display:none; place-items:center; line-height:1.15;
+  box-shadow:0 4px 14px rgba(0,0,0,.32);
+}
+.fab span{display:block; font-size:17px; line-height:1}
+body.viewer-collapsed .fab{display:grid}
+.fab:active{transform:scale(.93)}
 .app>*{min-width:0}
 
 /* ---------- header ---------- */
@@ -224,6 +246,9 @@ select,.sel{
   .sheet{grid-row:2; grid-column:2; border-left:1px solid var(--line)}
   .navbar{left:auto; width:480px; right:0}
   .pane{padding-bottom:90px}
+  body.viewer-collapsed .app{grid-template-rows:auto minmax(0,1fr)}
+  body.viewer-collapsed .viewer{opacity:1}
+  .fab{display:none !important}
 }
 
 /* ---------- print (A4縦) ---------- */
@@ -268,6 +293,7 @@ select,.sel{
     <div class="vtools">
       <button class="vbtn" id="btnXray" title="透視表示">透視</button>
       <button class="vbtn" id="btnWire" title="配線表示">配線</button>
+      <button class="vbtn" id="btnLabel" title="部品名の表示">名称</button>
       <button class="vbtn" id="btnSpin" title="自動回転">回転</button>
       <button class="vbtn" id="btnReset" title="視点リセット">視点</button>
     </div>
@@ -303,6 +329,11 @@ select,.sel{
           <option value="bar">バーエンド装着（ハンドル右ドロップ端）</option>
           <option value="dt">ダウンチューブ装着（フレーム下面）</option>
         </select>
+        <label class="mini" for="packmode" style="display:block;margin-top:10px">ユニットの集約</label>
+        <select id="packmode">
+          <option value="bb">BB周辺に集約（e-bikeバッテリーを避ける・推奨）</option>
+          <option value="spread">分散配置（バッテリー＝シートチューブ中程／WU＝ダウンチューブ内）</option>
+        </select>
         <label class="mini" for="jc41mode" style="display:block;margin-top:10px">SM-JC41（ジャンクションB）</label>
         <select id="jc41mode">
           <option value="bb">ダウンチューブ内・BB寄り</option>
@@ -316,7 +347,13 @@ select,.sel{
         <h3 class="sec">指定長 と 経路長（3Dモデル概算）</h3>
         <div id="lentable"></div>
         <div class="note info" id="verdict"></div>
+        <div class="note info" id="buylist"></div>
         <div class="note" id="lennote"><b>判定の見かた</b>経路長は3D模式モデル上の計算値で、曲げR・余長・コネクタ長を含みません。誤差を±15%と見込み、その帯に入るものは「要実測」としています。<b>発注・切り回しの前に必ず実車でライナーを通して実測</b>してください。</div>
+        <div class="note danger"><b>e-bike メインバッテリーとの競合</b>
+          Domane+ AL はダウンチューブ内を e-bike バッテリーが占有します。SM-JC41 と BT-DN110 を
+          ダウンチューブ中程〜上部に置くのは現実的ではないため、<b>BB周辺〜シートチューブ下部に集約</b>するのが基本方針になります。
+          その結果、③（EW-RS910 → SM-JC41）は必然的に最長の経路になります。
+          ダウンチューブ内を通せない場合は下面の外装、またはシートチューブ経由となり、さらに伸びます。</div>
         <div class="note danger"><b>③ EW-RS910 → SM-JC41（指定 700 mm）について</b>
           バーエンド装着の EW-RS910 からダウンチューブ内の SM-JC41 までは、
           「バーエンド→ハンドル中央（約250）＋コラム内下降（約200）＋ダウンチューブ（約400〜500）」で
@@ -380,9 +417,23 @@ select,.sel{
           <button class="focusbtn" id="btnClear">チェックを全消去</button>
         </div>
       </div>
+      <div class="card">
+        <h3 class="sec">アプリとして使う（PWA）</h3>
+        <p class="mini" id="pwastate">確認中…</p>
+        <div class="pillrow" style="margin-top:8px">
+          <button class="focusbtn" id="btnInstall" style="display:none">ホーム画面に追加</button>
+        </div>
+        <ul class="plain" style="margin-top:8px">
+          <li><b>Android / Chrome</b>：上のボタン、または メニュー <span class="kbd">⋮</span> →「アプリをインストール」</li>
+          <li><b>iPhone / Safari</b>：共有 <span class="kbd">□↑</span> →「ホーム画面に追加」</li>
+        </ul>
+        <p class="mini">インストール後はアドレスバーなしの全画面で起動し、<b>圏外・機内モードでも動作</b>します（初回表示時にキャッシュ）。更新はオンラインで開いたときに自動で取り込まれ、次回起動から反映されます。</p>
+      </div>
     </section>
   </div>
 </div>
+
+<button class="fab" id="fab" aria-label="3D図を表示"><span>3D</span>図</button>
 
 <nav class="navbar">
   <button id="prev">◀ 前</button>
@@ -579,14 +630,19 @@ const POS={
   portL:P(BARC.x+76,BARC.y-12,-BAR_HALF+7),
   rs910_bar:BAREND_R,
   rs910_dt:P(210,150,-14),                    // ダウンチューブ下面
-  batt:P(-52,232,0),                          // シートチューブ内
-  wu111:P(255,196,0),                         // ダウンチューブ内 前寄り
   rd:P(REAR.x-30,AXLE_Y-70,58)
 };
 /* SM-JC41 の設置位置（ダウンチューブ内のどこに置くか） */
 const JC41_POS={ bb:P(120,105,0), mid:P(235,218,0), head:P(338,300,0) };
 let JC41_MODE='bb';
 const jc41Pos=()=>JC41_POS[JC41_MODE];
+/* ユニットの集約方法。e-bike メインバッテリーがダウンチューブを占有するため、
+   BB周辺〜シートチューブ下部へ寄せる配置を既定とする */
+let PACK_MODE='bb';
+const BATT_POS={ bb:P(-22,152,0),  seat:P(-52,232,0) };
+const WU_POS  = { bb:P(95,42,-38), dt:P(255,196,0)  };
+const battPos=()=>BATT_POS[PACK_MODE==='bb'?'bb':'seat'];
+const wuPos  =()=>WU_POS[PACK_MODE==='bb'?'bb':'dt'];
 
 /* ============================================================
    3. 3Dモデル構築
@@ -596,11 +652,11 @@ function addWheel(out,center,isRear){
   const ax=V(0,0,1);
   const grp=isRear?'wheelR':'wheelF';
   // タンサイドウォール＋黒トレッド
-  const t=mesh(grp,COL.tire); torus(t,center,ax,R_TIRE-16,16,22,6); out.push(t);
-  const tr=mesh(grp,COL.tread); rimBand(tr,center,ax,R_TIRE,R_TIRE-9,30,22); out.push(tr);
+  const t=mesh(grp,COL.tire); torus(t,center,ax,R_TIRE-16,16,28,7); out.push(t);
+  const tr=mesh(grp,COL.tread); rimBand(tr,center,ax,R_TIRE,R_TIRE-9,30,30); out.push(tr);
   // リム：前輪はカーボンディープ（約50mm）、後輪はハブモーター組みの低リム
   const depth=isRear?26:50;
-  const r=mesh(grp,COL.rim); rimBand(r,center,ax,GEO.rim/2-4,GEO.rim/2-4-depth,24,20); out.push(r);
+  const r=mesh(grp,COL.rim); rimBand(r,center,ax,GEO.rim/2-4,GEO.rim/2-4-depth,24,30); out.push(r);
   // スポーク
   const sp=mesh(isRear?'wheelR':'wheelF',COL.silver);
   const hubR=isRear?62:26, hubW=isRear?52:38;
@@ -648,14 +704,14 @@ function buildBike(){
   out.push(f,cs,mirrorZ(cs));
   // ドロップアウト・ハンガー
   const dr=mesh('frame',COL.dark);
-  box(dr,P(REAR.x+6,REAR.y,68),46,54,10);
+  box(dr,P(REAR.x+6,REAR.y,68),46,54,14);
   box(dr,P(REAR.x-4,REAR.y-42,60),16,60,7);            // ディレイラーハンガー
-  box(dr,P(REAR.x+6,REAR.y,-68),46,54,10);
+  box(dr,P(REAR.x+6,REAR.y,-68),46,54,14);
   out.push(dr);
 
   /* --- フォーク --- */
   const fk=mesh('fork',COL.frame);
-  tube(fk,P(HT_BOT.x,HT_BOT.y),P(HT_BOT.x+26,HT_BOT.y-70),22,18,10);
+  tube(fk,P(HT_BOT.x,HT_BOT.y),P(HT_BOT.x+26,HT_BOT.y-70),22,18,14);
   const blade=mesh('fork',COL.frame);
   tube(blade,P(HT_BOT.x+22,HT_BOT.y-64,26),P(FRONT.x-6,FRONT.y+96,50),16,11,8);
   tube(blade,P(FRONT.x-6,FRONT.y+96,50),P(FRONT.x,FRONT.y,52),11,9,8);
@@ -674,7 +730,7 @@ function buildBike(){
 
   /* --- シートポスト / サドル --- */
   const sp=mesh('seat',COL.black);
-  tube(sp,P(ST_TOP.x,ST_TOP.y-10),P(ST_TOP.x-34,ST_TOP.y+120),15,15,10);
+  tube(sp,P(ST_TOP.x,ST_TOP.y-10),P(ST_TOP.x-34,ST_TOP.y+120),15,15,14);
   out.push(sp);
   const sd=mesh('seat',COL.black);
   box(sd,P(ST_TOP.x-46,ST_TOP.y+136),250,22,60,-0.06); out.push(sd);
@@ -687,12 +743,12 @@ function buildBike(){
   tube(cr,P(-160,-58,72),P(-160,-58,140),9,9,8);
   out.push(cr);
   const ring=mesh('crank',COL.silver);
-  rimBand(ring,P(0,0,52),V(0,0,1),81,60,4,24); disc(ring,P(0,0,52),V(0,0,1),62,14); out.push(ring);
+  rimBand(ring,P(0,0,52),V(0,0,1),81,60,4,30); disc(ring,P(0,0,52),V(0,0,1),62,20); out.push(ring);
 
   /* --- カセット 11-46T --- */
   const cas=mesh('cassette',COL.silver);
   const cogs=[[46,93,44],[37,75,52],[30,61,59],[24,49,66],[19,39,73],[15,31,79],[11,22,86]];
-  for(const[,r,z]of cogs) rimBand(cas,P(REAR.x,REAR.y,z),V(0,0,1),r,r-11,3.2,12);
+  for(const[,r,z]of cogs) rimBand(cas,P(REAR.x,REAR.y,z),V(0,0,1),r,r-11,3.2,14);
   tube(cas,P(REAR.x,REAR.y,42),P(REAR.x,REAR.y,90),20,20,12); out.push(cas);
 
   /* --- リアディレイラー RD-M8050-GS --- */
@@ -721,7 +777,7 @@ function buildBike(){
   tube(stem,BAR_C,P(BARC.x,BARC.y),26,30,8);                                   // ステム
   out.push(stem);
   const bR=mesh('cockpit',COL.black), bL=mesh('cockpit',COL.black);
-  polyTube(bR,barPath(1),13,6); polyTube(bL,barPath(-1),13,6); out.push(bR,bL);
+  polyTube(bR,barPath(1),13,9); polyTube(bL,barPath(-1),13,9); out.push(bR,bL);
 
   /* --- ST-RX815 --- */
   for(const s of [1,-1]){
@@ -756,7 +812,7 @@ function buildBike(){
   MESHES=out;
   ANCHORS={
     leverL:POS.leverL, leverR:POS.leverR, rs910:BAREND_R, rs910dt:POS.rs910_dt,
-    jc41:jc41Pos(), batt:POS.batt, wu111:POS.wu111, rd:P(REAR.x-26,REAR.y-66,66),
+    jc41:jc41Pos(), batt:battPos(), wu111:wuPos(), rd:P(REAR.x-26,REAR.y-66,66),
     cassette:P(REAR.x,REAR.y+60,60), motor:P(REAR.x,REAR.y,0), chain:P(-200,80,52),
     cockpit:P(BARC.x,BARC.y,0), frame:P(200,300,0), crank:P(0,-40,60),
     brakeF:P(FRONT.x-44,FRONT.y+66,-58), brakeR:P(REAR.x+64,REAR.y+38,-58),
@@ -804,12 +860,14 @@ function buildCables(){
   const p2 = RS910_MODE==='bar' ? p2bar
     : smooth([POS.portR, P(BARC.x+40,BARC.y-14,150), ...column,
               P(lerp(HT_BOT.x-14,POS.rs910_dt.x,.6),lerp(HT_BOT.y-2,POS.rs910_dt.y,.6),-8), POS.rs910_dt],3);
-  const p4=smooth([JC, P(lerp(JC.x,POS.batt.x,.5),lerp(JC.y,POS.batt.y,.5)+20,0), POS.batt],3);
+  const BT=battPos(), WU=wuPos();
+  const p4=smooth([JC, P(lerp(JC.x,BT.x,.5),lerp(JC.y,BT.y,.5)+18,0), BT],3);
   const p5=smooth([JC, P(40,50,10), P(10,-6,30), P(-60,10,44), P(-260,44,58),
                    P(REAR.x+40,REAR.y-10,62), P(REAR.x-6,REAR.y-30,62), POS.rd],3);
-  const p6=smooth([JC, P(lerp(JC.x,POS.wu111.x,.5),lerp(JC.y,POS.wu111.y,.5)+12,0), POS.wu111],3);
+  const p6=smooth([JC, P(lerp(JC.x,WU.x,.5),lerp(JC.y,WU.y,.5)+10,WU.z*0.5), WU],3);
   CABLE_PATHS={c1:p1,c2:p2,c3:p3,c4:p4,c5:p5,c6:p6};
-  if(ANCHORS){ ANCHORS.rs910 = RS910_MODE==='bar' ? BAREND_R : POS.rs910_dt; ANCHORS.jc41=JC; }
+  if(ANCHORS){ ANCHORS.rs910 = RS910_MODE==='bar' ? BAREND_R : POS.rs910_dt;
+               ANCHORS.jc41=JC; ANCHORS.batt=BT; ANCHORS.wu111=WU; }
   rebuildDynamic();
 }
 /** 配線＋小物ユニットは設定変更時にのみ再生成（毎フレーム生成しない） */
@@ -817,8 +875,9 @@ let DYN=[];
 function rebuildDynamic(){
   const out=cableMeshes();
   const jc=mesh('jc41',COL.junc); box(jc,jc41Pos(),74,20,22,-0.72); out.push(jc);
-  const bt=mesh('batt',COL.batt); tube(bt,vadd(POS.batt,P(-14,-52)),vadd(POS.batt,P(14,52)),12,12,10); out.push(bt);
-  const wu=mesh('wu111',COL.junc); box(wu,POS.wu111,52,17,18,-0.72); out.push(wu);
+  const B=battPos();
+  const bt=mesh('batt',COL.batt); tube(bt,vadd(B,P(-14,-52)),vadd(B,P(14,52)),12,12,10); out.push(bt);
+  const wu=mesh('wu111',COL.junc); box(wu,wuPos(),52,17,18,-0.72); out.push(wu);
   const rsB=mesh('rs910',COL.junc); tube(rsB,vadd(BAREND_R,P(-10,-2)),vadd(BAREND_R,P(26,4)),11,11,10); out.push(rsB);
   const rsD=mesh('rs910dt',COL.junc); box(rsD,POS.rs910_dt,64,18,20,-0.72); out.push(rsD);
   DYN=out;
@@ -848,7 +907,7 @@ function resize(){
   W=Math.max(1,Math.round(r.width)); H=Math.max(1,Math.round(r.height));
   cv.width=W*DPR; cv.height=H*DPR;
   ctx.setTransform(DPR,0,0,DPR,0,0); dirty=true;
-  if(typeof refit==='function') refit();
+  if(H>40&&typeof refit==='function') refit();
 }
 new ResizeObserver(resize).observe(document.getElementById('viewer'));
 
@@ -883,7 +942,23 @@ function shade(hex,k,alpha){
   r=clamp(Math.round(r*k),0,255); g=clamp(Math.round(g*k),0,255); b=clamp(Math.round(b*k),0,255);
   return alpha>=1?`rgb(${r},${g},${b})`:`rgba(${r},${g},${b},${alpha})`;
 }
+/** 拡散＋鏡面＋リムライトを合成した色を返す */
+function litColor(hex,diff,spec,alpha){
+  const n=parseInt(hex.slice(1),16);
+  const r=clamp(Math.round(((n>>16)&255)*diff+255*spec),0,255);
+  const g=clamp(Math.round(((n>>8)&255)*diff+255*spec),0,255);
+  const b=clamp(Math.round((n&255)*diff+248*spec),0,255);
+  return alpha>=1?`rgb(${r},${g},${b})`:`rgba(${r},${g},${b},${alpha})`;
+}
 const LIGHT=vnorm(V(-0.45,0.75,-0.5));
+const KEY_L=vnorm(V(-0.42,0.80,-0.44));   // 主光源（左上前方）
+const FILL_L=vnorm(V(0.58,0.20,0.52));    // 補助光（右下奥）
+// 素材ごとの光沢（0=つや消し）
+const VIEW_DIR=V(0,0,-1);
+const HALF_V=vnorm(vadd(KEY_L,VIEW_DIR));
+const GLOSS={cassette:.55,chain:.45,crank:.42,rd:.3,rotorF:.5,rotorR:.5,motor:.3,
+             rim:.35,wheelF:.3,wheelR:.3,frame:.16,fork:.16,cockpit:.2,
+             leverL:.22,leverR:.22,seat:.15,rack:.2,hose:.25,brakeF:.3,brakeR:.3};
 
 /** EW-RS910 は選択した取付位置のものだけ表示 */
 function visibleMesh(m){
@@ -902,8 +977,11 @@ function collect(list,meshes,active){
       for(const i of f){ if(vv[i].z<=1){ok=false;break;} z+=vv[i].z; }
       if(!ok) continue;
       const a=vv[f[0]],b=vv[f[1]],c=vv[f[2]];
-      const n=vnorm(vcross(vsub(b,a),vsub(c,a)));
-      list.push({t:0,m,f,vv,z:z/f.length,n});
+      let n=vnorm(vcross(vsub(b,a),vsub(c,a)));
+      // 面の中心から見た向き。カメラに背を向けた面は描かない（閉じた形状のみで構成）
+      const cx=(a.x+b.x+c.x)/3, cy=(a.y+b.y+c.y)/3, cz=(a.z+b.z+c.z)/3;
+      if(n.x*cx+n.y*cy+n.z*cz > 0) n=vmul(n,-1);
+      list.push({t:0,m,f,vv,z:z/f.length,n,c:V(cx,cy,cz)});
     }
     for(const l of m.lines){
       const a=vv[l[0]],b=vv[l[1]];
@@ -922,9 +1000,6 @@ function drawList(list,active){
       ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
       continue;
     }
-    const lam=Math.abs(vdot(it.n,LIGHT));
-    const k=active?(0.5+0.8*lam):(0.7+0.3*lam);
-    const alpha=active?1:0.4;
     ctx.beginPath();
     let first=true;
     for(const i of it.f){
@@ -933,7 +1008,24 @@ function drawList(list,active){
     }
     if(first) continue;
     ctx.closePath();
-    ctx.fillStyle=shade(base,k,alpha); ctx.fill();
+    if(active){
+      const n=it.n;
+      const kd=n.x*KEY_L.x+n.y*KEY_L.y+n.z*KEY_L.z;
+      const kf=n.x*FILL_L.x+n.y*FILL_L.y+n.z*FILL_L.z;
+      const diff=0.26+0.80*(kd>0?kd:0)+0.26*(kf>0?kf:0);   // 環境光＋主光＋補助光
+      const gl=GLOSS[it.m.group]!==undefined?GLOSS[it.m.group]:0.2;
+      let spec=0;
+      if(gl>0){
+        const d=n.x*HALF_V.x+n.y*HALF_V.y+n.z*HALF_V.z;   // ハーフベクトルは毎フレーム固定
+        if(d>0){const d2=d*d,d4=d2*d2,d8=d4*d4,d16=d8*d8; spec=d16*d4*d2*gl;}
+      }
+      const e=1-(n.z<0?-n.z:n.z), rim=e*e*e*0.16;          // 輪郭を浮かせる
+      ctx.fillStyle=litColor(base,diff,spec+rim,1);
+    }else{
+      const lam=Math.abs(vdot(it.n,LIGHT));
+      ctx.fillStyle=shade(base,0.7+0.3*lam,0.4);
+    }
+    ctx.fill();
   }
 }
 /** ラベルのアンカー（配線は経路の中点） */
@@ -948,8 +1040,9 @@ function cableColor(g){
   if(!g.startsWith('cable_')) return null;
   const c=CABLES.find(x=>x.id===g.slice(6)); return c?c.color:null;
 }
+let showLabels=true;
 function drawLabels(){
-  if(!activeLabels.length) return;
+  if(!showLabels||!activeLabels.length) return;
   const items=[];
   for(const L of activeLabels){
     const a=labelAnchor(L.g); if(!a) continue;
@@ -986,10 +1079,34 @@ function roundRect(x,y,w,h,r){
   ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
+/** 地面に落ちる柔らかい影（同心楕円の重ね描き） */
+function drawContactShadow(){
+  const spots=[[REAR.x,150],[FRONT.x,150],[0,120],[-352,90]];
+  for(const [x,rad] of spots){
+    for(let k=3;k>=1;k--){
+      const r=rad*(0.45+0.28*k), pts=[];
+      let ok=true;
+      for(let i=0;i<16;i++){
+        const a=i/16*Math.PI*2;
+        const p=project(toView(V(x+Math.cos(a)*r, GROUND+1, Math.sin(a)*r*0.75)));
+        if(!p){ok=false;break;} pts.push(p);
+      }
+      if(!ok) continue;
+      ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+      for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+      ctx.closePath();
+      ctx.fillStyle='rgba(0,0,0,'+(0.13/k+0.03)+')'; ctx.fill();
+    }
+  }
+}
 function drawGround(){
   const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#1e2937'); g.addColorStop(1,'#0e141b');
+  g.addColorStop(0,'#243040'); g.addColorStop(0.55,'#18202b'); g.addColorStop(1,'#0b1015');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // 中央を少し明るくして被写体を浮かせる
+  const rg=ctx.createRadialGradient(W*0.5,H*0.45,10,W*0.5,H*0.45,Math.max(W,H)*0.7);
+  rg.addColorStop(0,'rgba(120,160,200,.10)'); rg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
   ctx.strokeStyle='rgba(120,150,180,.10)'; ctx.lineWidth=1;
   const S=200;
   for(let i=-6;i<=6;i++){
@@ -1000,8 +1117,10 @@ function drawGround(){
   }
 }
 function render(){
+  if(H<20||W<20) return;
   VIEW=camBasis();
   drawGround();
+  drawContactShadow();
   const all=MESHES.concat(DYN);
   const inactive=[],act=[];
   collect(inactive,all,false); collect(act,all,true);
@@ -1083,7 +1202,14 @@ function fitView(az,el,groups,pad=1.06){
 (function(){
   const el=document.getElementById('viewer');
   let pts=new Map(), lastD=0, lastMid=null;
-  el.addEventListener('pointerdown',e=>{el.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});spin=false;syncSpin();fitted=false;});
+  // ツールボタン上のタッチはポインタキャプチャしない（キャプチャするとclickが飛ばない）
+  const onTools=e=>e.target.closest&&e.target.closest('.vtools');
+  el.addEventListener('pointerdown',e=>{
+    if(onTools(e)) return;
+    el.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    spin=false; syncSpin(); fitted=false;
+  });
   el.addEventListener('pointermove',e=>{
     if(!pts.has(e.pointerId)) return;
     const prev=pts.get(e.pointerId); const cur={x:e.clientX,y:e.clientY};
@@ -1127,6 +1253,7 @@ const PARTS=[
   ['エレクトリックワイヤ','EW-SD50 ×6','cable_c3','400／250／700／200／600／150 mm'],
   ['ハンドル','baracan MISSION 400/90','cockpit','一体型・フル内装'],
   ['ブレーキ','105 油圧キャリパー（流用）','brakeF','ミネラルオイル系'],
+  ['フォーク','カーボンフォーク（コラム＝アルミ）','fork','スターファングルナット使用可'],
   ['前ホイール','カーボンディープリム（約50mm）','wheelF','タンサイドウォールタイヤ・チューブレス'],
   ['後ホイール','HyDrive ハブモーター組み','wheelR','ZTTO 11-46T 装着済み・センターロックローター'],
   ['キャリア','リアキャリア','rack','実車装着済み'],
@@ -1137,9 +1264,9 @@ const STATUS=[
   ['done','リアホイールに ZTTO 11-46T を装着済み（ハブモーター側）。センターロックローターも取付済み'],
   ['done','baracan MISSION 一体型ハンドルをフレームへ仮組み済み。コラムは未カット'],
   ['done','リアキャリア装着済み'],
-  ['done','スターファングルナット圧入工具を入手済み（アルミコラムの場合のみ使用可）'],
+  ['done','スターファングルナット圧入工具を入手済み（コラムはアルミのため使用可）'],
   ['todo','前輪（カーボンディープ）のビード上げ'],
-  ['todo','コラムカット（材質確認 → カーボンならエキスパンダー、アルミならスターナット）'],
+  ['todo','コラムカット（フォーク＝カーボン／コラム＝アルミ。スターナットで施工）'],
   ['todo','RD-M8050-GS 取付／ST-RX815 取付／Di2 配線／チェーン／ブリーディング／E-TUBE 設定'],
 ];
 const TODO=[
@@ -1150,7 +1277,7 @@ const TODO=[
   'ディレイラーハンガー規格と RD-M8050-GS のチェーンライン（MTB用RD × ロードフレーム）',
   '46T ロー時のスポーク／ハブモーター外径とのクリアランス実測',
   'e-bike 側システムと Di2 の相互影響（アシスト制御・電源系は別系統）',
-  'フォークコラムの材質（カーボン／アルミ）— スターナットの可否に直結。切断前に要確認',
+  'ダウンチューブ内に EW-SD50 を通す隙間があるか（メインバッテリーの占有具合）。無ければ外装または別経路',
   'カーボンリムの最大空気圧とタイヤの推奨圧 — 低い方に合わせる',
   'リアキャリアと RD-M8050-GS ／ Di2 配線（⑤600mm のチェーンステー経路）の干渉'
 ];
@@ -1165,6 +1292,7 @@ const SPEC=[
   ['電源／制御','BT-DN110 ／ EW-RS910 ／ SM-JC41 ／ EW-WU111'],
   ['配線','EW-SD50 ×6（総長 2,300 mm）'],
   ['ハンドル','baracan MISSION 一体型 400 mm／ステム 90 mm・フル内装（コラム未カット）'],
+  ['フォーク','カーボン（コラム＝アルミ／スターファングルナット使用可）'],
   ['ホイール','前＝カーボンディープ（約50mm）／後＝HyDrive ハブモーター組み'],
   ['タイヤ','タンサイドウォール・チューブレス'],
   ['その他','リアキャリア装着'],
@@ -1283,15 +1411,16 @@ const STEPS=[
         'スペーサー構成を決め、コラム上端がステム上面より 3〜5mm 低くなる位置に印を付ける',
         '内装のホースと EW-SD50 をコラムから確実に逃がす',
         'ソーガイドを使い、直角に切断する。切断面のバリを取る',
-        'コラムの材質を確認する（カーボン＝エキスパンダー／アルミ＝スターファングルナット）',
-        'アンカーを規定の深さに取り付ける',
+        'アルミコラムのため、スターファングルナットを上端から約15mmの深さに圧入する',
+        '圧入後、ナットが傾いていないか（コラムに対して直角か）を確認する',
         'トップキャップでプリロードを与えてから、ステムを規定トルクで締める',
         'ヘッドのガタとハンドルの直進性を確認する'],
-  tools:['ソーガイド','金切り鋸（カーボン対応刃）','ヤスリ','スターファングルナット圧入工具（アルミコラムの場合のみ）','トルクレンチ','マスキングテープ','防塵マスク'],
+  tools:['ソーガイド','金切り鋸','ヤスリ','スターファングルナット圧入工具（HOUSON・入手済み）','トルクレンチ','マスキングテープ'],
   torque:[['ステムクランプ','5–6 N·m（メーカー指定優先）'],['トップキャップ','プリロード調整のみ・締めすぎない']],
-  notes:[['danger','スターナットはカーボンコラムに使用不可','スターファングルナットは内側から爪を広げて食い込ませる構造です。カーボンコラムに圧入すると割れます。カーボンならエキスパンダー（プレッシャーアンカー）を使用してください。切る前に必ず材質を確認。'],
+  notes:[['info','本車はアルミコラム','フォーク＝カーボン、コラム＝アルミ。スターファングルナットが使用できます（購入済みの圧入工具でOK）。なお一般則として、カーボンコラムにスターナットは使用不可（要エキスパンダー）です。'],
          ['danger','切る前に確定させる','フル内装は切断後の高さ変更が困難です。試走でポジションを出してから切ってください。'],
-         ['warn','切断時の粉塵','カーボンの切粉は吸い込まないよう養生し、マスクを着用。刃はカーボン対応のものを使用します。']]},
+         ['warn','切断とバリ','アルミコラムはソーガイドで直角に。切断面のバリは必ず取り、切粉がヘッドセット内に残らないよう清掃します。'],
+         ['warn','圧入の深さ','スターナットが浅いとトップキャップのボルトが届かず、深すぎるとプリロードが掛かりません。上端から約15mmが目安（実測で調整）。']]},
 
  {t:'ST-RX815 とホース処理',s:'レバー位置決めと油圧接続',g:['leverL','leverR','hose','brakeF','brakeR'],
   view:{az:56,el:12,fit:['leverL','leverR','cockpit','hose','brakeF']},
@@ -1500,7 +1629,25 @@ document.querySelectorAll('.tab').forEach(t=>{
 });
 $('#btnXray').onclick=e=>{xray=!xray; e.currentTarget.classList.toggle('on',xray); dirty=true;};
 $('#btnWire').onclick=e=>{showWire=!showWire; e.currentTarget.classList.toggle('on',showWire); dirty=true;};
+$('#btnLabel').onclick=e=>{
+  showLabels=!showLabels;
+  e.currentTarget.classList.toggle('on',showLabels);
+  $('#legend').style.display=showLabels?'':'none';
+  dirty=true;
+};
 $('#btnSpin').onclick=e=>{spin=!spin; syncSpin();};
+
+/* 本文をスクロールしたら3Dを畳み、右下の「3D図」ボタンで戻す */
+(function(){
+  const sheet=$('#sheet'), body=document.body;
+  let collapsed=false;
+  const set=v=>{ if(v===collapsed) return; collapsed=v; body.classList.toggle('viewer-collapsed',v); };
+  sheet.addEventListener('scroll',()=>{
+    if(sheet.scrollTop>36) set(true);
+    else if(sheet.scrollTop<6) set(false);
+  },{passive:true});
+  $('#fab').onclick=()=>{ set(false); sheet.scrollTo({top:0,behavior:'smooth'}); };
+})();
 $('#btnReset').onclick=()=>applyView();
 function syncSpin(){$('#btnSpin').classList.toggle('on',spin);}
 $('#btnPrint').onclick=()=>window.print();
@@ -1532,8 +1679,15 @@ function renderParts(){
 }
 
 /* --- 配線タブ --- */
+// EW-SD50 の主な規格長（mm）
+const SD50=[150,200,250,300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000,1050,1100,1200,1400];
+/** 経路長＋余長（40mm または 8% の大きい方）から、直近上位の規格長を選ぶ */
+function recommendLen(L){
+  const need=L+Math.max(40,L*0.08);
+  return SD50.find(v=>v>=need) || SD50[SD50.length-1];
+}
 function renderLengths(){
-  let ng=0,warn=0;
+  let ng=0,warn=0; const buy=[];
   const rows=CABLES.map(c=>{
     const L=Math.round(pathLen(CABLE_PATHS[c.id]));
     const ratio=L/c.spec;
@@ -1541,12 +1695,24 @@ function renderLengths(){
     const cls=ratio<=0.85?'ok':ratio<=1.15?'warn':'ng';
     const txt=cls==='ok'?'余裕あり':cls==='warn'?'要実測':'不足の恐れ';
     if(cls==='ng')ng++; if(cls==='warn')warn++;
+    const rec=recommendLen(L);
+    if(rec>c.spec) buy.push({c,L,rec});
     return `<div class="lenrow">
       <div><b style="color:${c.color}">■ ${c.n}</b> ${esc(c.from)} → ${esc(c.to)}</div>
-      <div class="r">指定 ${c.spec} ／ 経路 約${L} mm
+      <div class="r">指定 ${c.spec} ／ 経路 約${L} mm ／ 推奨 <b>${rec}</b>
         <span class="tag ${cls}">${txt}</span></div>
     </div>`;
   }).join('');
+  const bl=$('#buylist');
+  if(buy.length){
+    bl.className='note';
+    bl.innerHTML='<b>買い足しの目安（EW-SD50）</b>'+
+      buy.map(b=>`${b.c.n} ${esc(b.c.from)} → ${esc(b.c.to)}：手持ち ${b.c.spec} → <b>${b.rec} mm</b>（経路 約${b.L}）`).join('<br>')+
+      '<br><span style="opacity:.8">推奨長＝モデル経路長＋余長（40mm または8%の大きい方）を、EW-SD50 の規格長へ切り上げたものです。必ず実測で確認してください。</span>';
+  }else{
+    bl.className='note info';
+    bl.innerHTML='<b>買い足し不要の見込み</b>現在の配置なら、手持ちの6本で足りる計算です（モデル概算）。';
+  }
   const total=CABLES.reduce((a,c)=>a+c.spec,0);
   $('#lentable').innerHTML=rows+`<div class="lenrow"><div><b>合計（指定長）</b></div><div class="r"><b>${total} mm</b></div></div>`;
   const v=$('#verdict');
@@ -1569,6 +1735,7 @@ function onLayoutChange(){
 }
 $('#rs910mode').onchange=e=>{ RS910_MODE=e.target.value; onLayoutChange(); };
 $('#jc41mode').onchange=e=>{ JC41_MODE=e.target.value; onLayoutChange(); };
+$('#packmode').onchange=e=>{ PACK_MODE=e.target.value; onLayoutChange(); };
 
 /* --- 配線図SVG（手書き） --- */
 const WIRE_SVG=`
@@ -1676,7 +1843,35 @@ function buildPrint(){
 }
 
 /* ============================================================
-   9. 起動
+   9. PWA（インストールとオフライン動作）
+   ============================================================ */
+(function(){
+  const st=$('#pwastate'), btn=$('#btnInstall');
+  const standalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+  let deferred=null;
+  if(location.protocol==='https:'||location.hostname==='localhost'){
+    if('serviceWorker' in navigator){
+      addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+    }
+  }
+  window.addEventListener('beforeinstallprompt',e=>{
+    e.preventDefault(); deferred=e;
+    btn.style.display=''; st.textContent='この端末にインストールできます。';
+  });
+  window.addEventListener('appinstalled',()=>{
+    btn.style.display='none'; st.textContent='インストール済みです。';
+  });
+  btn.onclick=async()=>{
+    if(!deferred) return;
+    deferred.prompt(); await deferred.userChoice; deferred=null; btn.style.display='none';
+  };
+  st.textContent = standalone ? 'アプリとして起動中です（オフライン対応）。'
+    : location.protocol==='file:' ? 'ローカルファイルとして開いています。インストールするには公開URLから開いてください。'
+    : 'メニューから「アプリをインストール」を選ぶとホーム画面に追加できます。';
+})();
+
+/* ============================================================
+   10. 起動
    ============================================================ */
 buildBike();
 renderParts();
@@ -1686,6 +1881,7 @@ renderChips();
 renderStep();
 applyView();
 $('#btnXray').classList.toggle('on',xray);
+$('#btnLabel').classList.toggle('on',showLabels);
 $('#btnWire').classList.toggle('on',showWire);
 resize();
 requestAnimationFrame(tick);

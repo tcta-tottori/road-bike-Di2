@@ -1,0 +1,18 @@
+{
+  "name": "Domane+ AL5 Di2化 施工手順",
+  "short_name": "Di2施工",
+  "description": "Trek Domane+ AL 5 の 1×11 Di2 化を3Dで確認しながら進める施工手順アプリ",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d1116",
+  "theme_color": "#111820",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
