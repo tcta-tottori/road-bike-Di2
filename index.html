@@ -358,6 +358,11 @@ select,.sel{
         <table class="t" id="spectable"></table>
       </div>
       <div class="card">
+        <h3 class="sec">現況（実車写真より）</h3>
+        <p class="sub" id="statusdate"></p>
+        <div id="statuslist"></div>
+      </div>
+      <div class="card">
         <h3 class="sec">ジオメトリ（参考値・size 54）</h3>
         <table class="t" id="geotable"></table>
         <p class="mini">3Dモデルの寸法根拠。Domane AL 系の一般的な数値を用いた<b>模式図</b>であり、実車の公称値とは差異があります。実測を優先してください。</p>
@@ -541,10 +546,11 @@ const HT_BOT=P(HT_TOP.x+GEO.headTube*Math.cos(GEO.headAngle*Math.PI/180),
                HT_TOP.y-GEO.headTube*Math.sin(GEO.headAngle*Math.PI/180));
 const GROUND=AXLE_Y-R_TIRE;
 
+// 実車＝マットブラック。暗い背景で沈まないよう、明度は少し持ち上げたグラファイト調
 const COL={
-  frame:'#d8321f', frameDark:'#a72415', black:'#59636f', dark:'#646f7b',
-  silver:'#b9c1ca', steel:'#c2c9d1', tire:'#3a4046', rim:'#8b939c',
-  wire:'#f0c419', batt:'#22c1a8', junc:'#4cb7ee', hose:'#4a525b'
+  frame:'#5a626b', frameDark:'#464d55', black:'#59636f', dark:'#646f7b',
+  silver:'#b9c1ca', steel:'#c2c9d1', tire:'#c0a074', tread:'#41474e', rim:'#565e67',
+  rack:'#4d545c', wire:'#f0c419', batt:'#22c1a8', junc:'#4cb7ee', hose:'#4a525b'
 };
 
 /* --- コックピット基準 --- */
@@ -588,8 +594,13 @@ const jc41Pos=()=>JC41_POS[JC41_MODE];
 let MESHES=[], ANCHORS={};
 function addWheel(out,center,isRear){
   const ax=V(0,0,1);
-  const t=mesh(isRear?'wheelR':'wheelF',COL.tire); torus(t,center,ax,R_TIRE-16,16,22,6); out.push(t);
-  const r=mesh(isRear?'wheelR':'wheelF',COL.rim); rimBand(r,center,ax,GEO.rim/2-4,GEO.rim/2-26,22,20); out.push(r);
+  const grp=isRear?'wheelR':'wheelF';
+  // タンサイドウォール＋黒トレッド
+  const t=mesh(grp,COL.tire); torus(t,center,ax,R_TIRE-16,16,22,6); out.push(t);
+  const tr=mesh(grp,COL.tread); rimBand(tr,center,ax,R_TIRE,R_TIRE-9,30,22); out.push(tr);
+  // リム：前輪はカーボンディープ（約50mm）、後輪はハブモーター組みの低リム
+  const depth=isRear?26:50;
+  const r=mesh(grp,COL.rim); rimBand(r,center,ax,GEO.rim/2-4,GEO.rim/2-4-depth,24,20); out.push(r);
   // スポーク
   const sp=mesh(isRear?'wheelR':'wheelF',COL.silver);
   const hubR=isRear?62:26, hubW=isRear?52:38;
@@ -649,6 +660,17 @@ function buildBike(){
   tube(blade,P(HT_BOT.x+22,HT_BOT.y-64,26),P(FRONT.x-6,FRONT.y+96,50),16,11,8);
   tube(blade,P(FRONT.x-6,FRONT.y+96,50),P(FRONT.x,FRONT.y,52),11,9,8);
   out.push(fk,blade,mirrorZ(blade));
+
+  /* --- リアキャリア（実車装着） --- */
+  const rk=mesh('rack',COL.rack);
+  box(rk,P(-352,472,0),300,12,132);
+  for(const z of [58,-58]){
+    tube(rk,P(-215,468,z),P(-300,468,z),7,7,6);
+    tube(rk,P(-215,468,z),P(ST_TOP.x-6,ST_TOP.y-70,z*0.35),8,8,6);   // 上部ステー
+    tube(rk,P(-300,470,z),P(REAR.x+4,REAR.y+16,z*1.18),8,8,6);       // 下部ステー
+    tube(rk,P(-470,468,z),P(REAR.x-10,REAR.y+18,z*1.18),8,8,6);
+  }
+  out.push(rk);
 
   /* --- シートポスト / サドル --- */
   const sp=mesh('seat',COL.black);
@@ -739,6 +761,7 @@ function buildBike(){
     cockpit:P(BARC.x,BARC.y,0), frame:P(200,300,0), crank:P(0,-40,60),
     brakeF:P(FRONT.x-44,FRONT.y+66,-58), brakeR:P(REAR.x+64,REAR.y+38,-58),
     headtop:P(HT_TOP.x,HT_TOP.y+18,0), bb:P(0,0,0),
+    wheelF:P(FRONT.x+150,FRONT.y+150,0), rack:P(-352,486,0),
     wheelR:P(REAR.x-140,REAR.y-140,0), seat:P(ST_TOP.x-40,ST_TOP.y+140,0), fork:P(FRONT.x-40,FRONT.y+200,0)
   };
   buildCables();
@@ -965,7 +988,7 @@ function roundRect(x,y,w,h,r){
 }
 function drawGround(){
   const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#151e28'); g.addColorStop(1,'#0a0e13');
+  g.addColorStop(0,'#1e2937'); g.addColorStop(1,'#0e141b');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   ctx.strokeStyle='rgba(120,150,180,.10)'; ctx.lineWidth=1;
   const S=200;
@@ -1091,7 +1114,7 @@ function fitView(az,el,groups,pad=1.06){
    6. データ：部品・工程
    ============================================================ */
 const PARTS=[
-  ['車体','Trek Domane+ AL 5 (size 54)','frame','アルミ Domane+ AL／HyDrive リアハブモーター'],
+  ['車体','Trek Domane+ AL 5 (size 54)','frame','アルミ Domane+ AL（実車マットブラック）／HyDrive リアハブモーター'],
   ['リアハブ','HyDrive リアハブモーター','motor','フリーボディ YH-IF30.8（HG 11S 短ボディ）'],
   ['シフター','ST-RX815 L/R','leverR','GRX Di2 油圧デュアルコントロールレバー'],
   ['リアディレイラー','RD-M8050-GS','rd','XT Di2／最大ロー 46T・GSケージ'],
@@ -1104,6 +1127,20 @@ const PARTS=[
   ['エレクトリックワイヤ','EW-SD50 ×6','cable_c3','400／250／700／200／600／150 mm'],
   ['ハンドル','baracan MISSION 400/90','cockpit','一体型・フル内装'],
   ['ブレーキ','105 油圧キャリパー（流用）','brakeF','ミネラルオイル系'],
+  ['前ホイール','カーボンディープリム（約50mm）','wheelF','タンサイドウォールタイヤ・チューブレス'],
+  ['後ホイール','HyDrive ハブモーター組み','wheelR','ZTTO 11-46T 装着済み・センターロックローター'],
+  ['キャリア','リアキャリア','rack','実車装着済み'],
+];
+// 実車写真（2026-08-05 受領）から確認できた現況
+const STATUS_DATE='2026-08-05';
+const STATUS=[
+  ['done','リアホイールに ZTTO 11-46T を装着済み（ハブモーター側）。センターロックローターも取付済み'],
+  ['done','baracan MISSION 一体型ハンドルをフレームへ仮組み済み。コラムは未カット'],
+  ['done','リアキャリア装着済み'],
+  ['done','スターファングルナット圧入工具を入手済み（アルミコラムの場合のみ使用可）'],
+  ['todo','前輪（カーボンディープ）のビード上げ'],
+  ['todo','コラムカット（材質確認 → カーボンならエキスパンダー、アルミならスターナット）'],
+  ['todo','RD-M8050-GS 取付／ST-RX815 取付／Di2 配線／チェーン／ブリーディング／E-TUBE 設定'],
 ];
 const TODO=[
   'チェーンリング歯数・クランク（既存流用か新規か）— 資料に記載なし。1×11 のチェーンライン確認が必要',
@@ -1112,7 +1149,10 @@ const TODO=[
   'EW-WU111 の設置場所 — アルミフレーム内装は通信距離が落ちるため、外装または開口部付近を推奨',
   'ディレイラーハンガー規格と RD-M8050-GS のチェーンライン（MTB用RD × ロードフレーム）',
   '46T ロー時のスポーク／ハブモーター外径とのクリアランス実測',
-  'e-bike 側システムと Di2 の相互影響（アシスト制御・電源系は別系統）'
+  'e-bike 側システムと Di2 の相互影響（アシスト制御・電源系は別系統）',
+  'フォークコラムの材質（カーボン／アルミ）— スターナットの可否に直結。切断前に要確認',
+  'カーボンリムの最大空気圧とタイヤの推奨圧 — 低い方に合わせる',
+  'リアキャリアと RD-M8050-GS ／ Di2 配線（⑤600mm のチェーンステー経路）の干渉'
 ];
 const SPEC=[
   ['車体','Trek Domane+ AL 5 ／ size 54'],
@@ -1124,7 +1164,10 @@ const SPEC=[
   ['チェーン','KMC X11 Aurora'],
   ['電源／制御','BT-DN110 ／ EW-RS910 ／ SM-JC41 ／ EW-WU111'],
   ['配線','EW-SD50 ×6（総長 2,300 mm）'],
-  ['ハンドル','baracan MISSION 一体型 400 mm／ステム 90 mm・フル内装'],
+  ['ハンドル','baracan MISSION 一体型 400 mm／ステム 90 mm・フル内装（コラム未カット）'],
+  ['ホイール','前＝カーボンディープ（約50mm）／後＝HyDrive ハブモーター組み'],
+  ['タイヤ','タンサイドウォール・チューブレス'],
+  ['その他','リアキャリア装着'],
   ['ブレーキ','105 油圧キャリパー流用（ミネラルオイル）'],
 ];
 const GEOROWS=[
@@ -1135,6 +1178,8 @@ const GEOROWS=[
   ['スタック／リーチ','575 / 374 mm'],['タイヤ','700×32C（外径 686 mm 相当）']
 ];
 
+const STEP_IDS=['overview','prep','remove','cassette','wheel','rd','cockpit','steerer',
+  'lever','wiring','junction','chain','bleed','etube','final'];
 const STEPS=[
  {t:'全体構成の確認',s:'完成形と各パーツの位置関係を把握する',g:['*'],
   view:{az:34,el:14,fit:['*']},
@@ -1186,6 +1231,22 @@ const STEPS=[
   notes:[['danger','スペーサー','短ボディに 1.85mm スペーサーを入れるとトップ側が奥まり、チェーンラインと変速性能が崩れます。資料どおり不使用。'],
          ['warn','クリアランス','ハブモーターは通常ハブより外径が大きく、46T ロー時にチェーンが干渉する可能性があります。手回しで必ず確認。']]},
 
+ {t:'ホイールとタイヤの準備（ビード上げ）',s:'前輪カーボンディープ／チューブレス',g:['wheelF','wheelR','rotorF','rotorR','motor'],
+  view:{az:-18,el:10,fit:['wheelF','wheelR']},
+  labels:[['wheelF','前＝カーボンディープ'],['wheelR','後＝ハブモーター組み'],['motor','ローター／カセット再確認']],
+  goal:'前後ホイールを走行可能な状態にする。前輪のビードを上げ、エア保持を確認する。',
+  work:['リムテープの状態とバルブの締まり、シーラント残量を確認する',
+        'ビード全周に石けん水を塗り、タイヤをリム中央（ドロップセンター）へ落とす',
+        'バルブコアを抜き、ブースタータンクまたはコンプレッサーで一気に加圧してビードを上げる',
+        'ビードラインがリム全周で均一に出ているか目視で確認する',
+        '一度空気を抜いてシーラントを規定量注入し、再加圧する',
+        '指定空気圧まで入れ、一晩置いてエア漏れがないことを確認する',
+        'リア側はローターとカセットの締結を再確認する（ハブモーター側）'],
+  tools:['フロアポンプ＋ブースタータンク（またはコンプレッサー）','石けん水','シーラント','バルブコア回し','タイヤレバー'],
+  notes:[['danger','上限空気圧','リムとタイヤ双方の最大空気圧のうち、低い方を超えないこと。ビード上げ時も同様です。'],
+         ['warn','ビードが上がらないとき','バルブコアを抜いて流量を稼ぐ／石けん水を追い足す／タイヤを一晩リムに嵌めたまま張っておく。それでも上がらなければ一度チューブを入れて形を付ける。'],
+         ['info','前後でリムが違う','前＝カーボンディープ、後＝HyDrive ハブモーター組み。ローターとキャリパーのクリアランスは前後それぞれで確認します。']]},
+
  {t:'RD-M8050-GS の取付',s:'ハンガー点検・B調整',g:['rd','cassette','frame'],
   view:{az:-52,el:8,fit:['rd','cassette']},
   labels:[['rd','RD-M8050-GS'],['cassette','ロー 46T']],
@@ -1204,15 +1265,33 @@ const STEPS=[
   view:{az:50,el:24,fit:['cockpit','leverL','leverR']},
   labels:[['cockpit','baracan MISSION 400/90'],['headtop','ヘッドセット内経路']],
   goal:'一体型ハンドルの内部にホースと EW-SD50 を通し、切れ角でも突っ張らない経路を作る。',
-  work:['コラムカット量とスペーサー構成を仮組みで決定する',
+  work:['スペーサー構成を仮組みで決める（コラムの切断は次工程）',
         'ハンドル内部にライナーを通し、通し順を決める（ホース→電線）',
         'ヘッドセット上部からステム内部への経路を確保する（ベアリングを傷つけない）',
         'ハンドル角度を決め、メーカー指定トルクで締結する',
         'フルロック（左右切れ角いっぱい）で配線の突っ張り・擦れを確認する'],
-  tools:['4/5mm 六角','トルクレンチ','ソーガイド（コラムカット時）','内装ライナー'],
+  tools:['4/5mm 六角','トルクレンチ','内装ライナー'],
   torque:[['ステム／ハンドルクランプ','5–6 N·m（メーカー指定優先）'],['トップキャップ','プリロード調整のみ']],
   notes:[['danger','一体型ハンドル','カーボン／一体型は指定トルク超過で割れます。必ず baracan の指定値を使用。'],
          ['warn','通し順','先に太い油圧ホース、あとから EW-SD50。電線コネクタは細く折れやすいので、ライナーで保護して通す。']]},
+
+ {t:'コラムカットとヘッドセット調整',s:'ハンドル高さの確定（不可逆）',g:['cockpit','fork','frame'],
+  view:{az:48,el:22,fit:['cockpit']},
+  labels:[['headtop','コラム突き出し量'],['cockpit','baracan MISSION']],
+  goal:'ポジションを確定してからコラムを切り、プリロードを正しく出す。',
+  work:['仮組みのまま試走し、ハンドル高さを確定する（切ったら戻せません）',
+        'スペーサー構成を決め、コラム上端がステム上面より 3〜5mm 低くなる位置に印を付ける',
+        '内装のホースと EW-SD50 をコラムから確実に逃がす',
+        'ソーガイドを使い、直角に切断する。切断面のバリを取る',
+        'コラムの材質を確認する（カーボン＝エキスパンダー／アルミ＝スターファングルナット）',
+        'アンカーを規定の深さに取り付ける',
+        'トップキャップでプリロードを与えてから、ステムを規定トルクで締める',
+        'ヘッドのガタとハンドルの直進性を確認する'],
+  tools:['ソーガイド','金切り鋸（カーボン対応刃）','ヤスリ','スターファングルナット圧入工具（アルミコラムの場合のみ）','トルクレンチ','マスキングテープ','防塵マスク'],
+  torque:[['ステムクランプ','5–6 N·m（メーカー指定優先）'],['トップキャップ','プリロード調整のみ・締めすぎない']],
+  notes:[['danger','スターナットはカーボンコラムに使用不可','スターファングルナットは内側から爪を広げて食い込ませる構造です。カーボンコラムに圧入すると割れます。カーボンならエキスパンダー（プレッシャーアンカー）を使用してください。切る前に必ず材質を確認。'],
+         ['danger','切る前に確定させる','フル内装は切断後の高さ変更が困難です。試走でポジションを出してから切ってください。'],
+         ['warn','切断時の粉塵','カーボンの切粉は吸い込まないよう養生し、マスクを着用。刃はカーボン対応のものを使用します。']]},
 
  {t:'ST-RX815 とホース処理',s:'レバー位置決めと油圧接続',g:['leverL','leverR','hose','brakeF','brakeR'],
   view:{az:56,el:12,fit:['leverL','leverR','cockpit','hose','brakeF']},
@@ -1324,14 +1403,16 @@ const STEPS=[
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let cur=0;
-const KEY='domane-di2-progress-v1';
+STEPS.forEach((s,i)=>s.id=STEP_IDS[i]||('step'+i));
+const KEY='domane-di2-progress-v2';
 let done={};
 try{done=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){done={};}
 const saveDone=()=>{try{localStorage.setItem(KEY,JSON.stringify(done));}catch(e){}};
 
 function totalItems(){return STEPS.reduce((a,s)=>a+s.work.length,0);}
 function doneCount(){return Object.values(done).filter(Boolean).length;}
-function stepDone(i){return STEPS[i].work.every((_,j)=>done[i+'-'+j]);}
+const dkey=(i,j)=>STEPS[i].id+'-'+j;
+function stepDone(i){return STEPS[i].work.every((_,j)=>done[dkey(i,j)]);}
 
 function renderChips(){
   const c=$('#chips'); c.innerHTML='';
@@ -1353,7 +1434,7 @@ function renderStep(){
     <div class="note info"><b>この工程の目的</b>${esc(s.goal)}</div>
     <h3 class="sec">作業手順</h3><ul class="work">`;
   s.work.forEach((w,j)=>{
-    const k=cur+'-'+j;
+    const k=dkey(cur,j);
     h+=`<li><label><input type="checkbox" data-k="${k}" ${done[k]?'checked':''}><span>${esc(w)}</span></label></li>`;
   });
   h+='</ul>';
@@ -1443,6 +1524,9 @@ function renderParts(){
     };
   });
   $('#todolist').innerHTML=TODO.map(t=>`<li>${esc(t)}</li>`).join('');
+  $('#statusdate').textContent=STATUS_DATE+' 時点';
+  $('#statuslist').innerHTML=STATUS.map(r=>
+    `<div class="lenrow"><div><span class="tag ${r[0]==='done'?'ok':'warn'}">${r[0]==='done'?'完了':'未実施'}</span> ${esc(r[1])}</div></div>`).join('');
   $('#spectable').innerHTML=SPEC.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('');
   $('#geotable').innerHTML=GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('');
 }
@@ -1583,8 +1667,10 @@ function buildPrint(){
     if(s.notes) s.notes.forEach(n=>h+=`<div class="pnote"><b>${esc(n[1])}</b>：${esc(n[2])}</div>`);
     h+='</div>';
   });
-  h+=`<h2>5. 要確認・未確定事項</h2><ul>${TODO.map(t=>`<li><span class="chk"></span>${esc(t)}</li>`).join('')}</ul>
-  <h2>6. ジオメトリ（参考値・size 54）</h2><table>${GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')}</table>
+  h+=`<h2>5. 現況（${esc(STATUS_DATE)} 時点・実車写真より）</h2><ul>${
+    STATUS.map(r=>`<li>[${r[0]==='done'?'完了':'未実施'}] ${esc(r[1])}</li>`).join('')}</ul>
+  <h2>6. 要確認・未確定事項</h2><ul>${TODO.map(t=>`<li><span class="chk"></span>${esc(t)}</li>`).join('')}</ul>
+  <h2>7. ジオメトリ（参考値・size 54）</h2><table>${GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')}</table>
   <div style="font-size:8pt;margin-top:3mm">※ トルク値・寸法はすべて参考値です。必ず各メーカーの最新ディーラーマニュアルおよび実測値を優先してください。</div>`;
   $('#printsheet').innerHTML=h;
 }
