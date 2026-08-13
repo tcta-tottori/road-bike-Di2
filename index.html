@@ -159,6 +159,12 @@ body.playing .vhint{display:none}
   content:""; position:absolute; right:3px; top:3px; width:7px; height:7px;
   border-radius:50%; background:var(--ok);
 }
+/* トルクセンサー待ち（部品が届くまで着手できない作業を含む工程） */
+.chip.hold::before{
+  content:""; position:absolute; left:3px; bottom:3px; width:7px; height:7px;
+  border-radius:50%; background:var(--warn);
+}
+.chip.blocked{border-style:dashed; opacity:.7}
 .card{
   background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
   padding:14px; margin-bottom:12px;
@@ -187,6 +193,10 @@ ul.work input{
 }
 ul.work label span{font-size:14px}
 ul.work input:checked + span{color:var(--ink2); text-decoration:line-through}
+ul.work li.wait{background:rgba(199,119,0,.07); border-radius:6px}
+ul.work li.wait label{cursor:default}
+ul.work li.wait label span{color:var(--ink2)}
+ul.work input:disabled{opacity:.4}
 ul.plain{margin:0; padding-left:1.15em; font-size:14px}
 ul.plain li{margin:3px 0}
 table.t{width:100%; border-collapse:collapse; font-size:13px}
@@ -310,7 +320,7 @@ select,.sel{
       <h1>Domane+ AL5 ／ Di2化 施工手順</h1>
       <p>Trek Domane+ AL 5 (size 54) ・1×11 ・ST-RX815 × RD-M8050-GS</p>
     </div>
-    <div class="progress-ring"><b id="prog">0%</b>完了</div>
+    <div class="progress-ring"><b id="prog">0%</b>今できる分</div>
   </header>
 
   <div class="viewer" id="viewer">
@@ -347,6 +357,7 @@ select,.sel{
 
     <!-- ============ 手順 ============ -->
     <section class="pane active" id="p-step">
+      <div id="holdbanner"></div>
       <div class="chips" id="chips"></div>
       <div id="stepbody"></div>
     </section>
@@ -469,7 +480,9 @@ select,.sel{
           <li>単一HTMLファイル。外部通信なしでオフライン動作します。</li>
           <li>3Dはcanvasの自作レンダラ（ライブラリ不使用）による<b>模式図</b>です。CADデータではありません。</li>
           <li>トルク値はすべて<b>参考値</b>です。必ず各メーカーの最新ディーラーマニュアルを確認してください。</li>
-          <li>チェック状況はこの端末のブラウザに保存されます（localStorage）。</li>
+          <li>チェック状況はこの端末のブラウザに保存されます（localStorage）。<b>2026-08-13 の工程組み替えで保存キーを更新した</b>ため、それ以前のチェックは引き継がれません。</li>
+          <li><b>BBトルクセンサー（HYENA 57T031）の故障</b>に合わせ、センサー無しで進められる作業を前に、
+            センサー待ちの作業を後ろにまとめています。待ちの項目はチェックできない状態で表示され、進捗率の母数からも外れます。</li>
         </ul>
         <div class="pillrow" style="margin-top:10px">
           <button class="focusbtn" id="btnPlayAll">▶ 解説を最初から再生</button>
@@ -487,7 +500,7 @@ select,.sel{
             接続済みの配線は色付きのまま残るので、どこまで繋いだかが一目で分かります。</li>
           <li>画面上部の<b>①〜⑥のインジケータ</b>が接続順を表します（塗り＝接続済み／太枠＝接続中／薄い枠＝未接続）。</li>
           <li>再生中のバーで 前後のシーン・一時停止・速度（0.5〜2.0×）を操作できます。</li>
-          <li><b>「● 録画」</b>を押すと最初から再生しながら録画し、停止すると <span class="kbd">.webm</span> 動画として保存されます（約3分半・音声なし）。端末が対応していない場合はボタンが出ません。</li>
+          <li><b>「● 録画」</b>を押すと最初から再生しながら録画し、停止すると <span class="kbd">.webm</span> 動画として保存されます（約4分・音声なし）。端末が対応していない場合はボタンが出ません。</li>
         </ul>
       </div>
       <div class="card">
@@ -674,7 +687,8 @@ const GROUND=AXLE_Y-R_TIRE;
 const COL={
   frame:'#5a626b', frameDark:'#464d55', black:'#59636f', dark:'#646f7b',
   silver:'#b9c1ca', steel:'#c2c9d1', tire:'#c0a074', tread:'#41474e', rim:'#565e67',
-  rack:'#4d545c', wire:'#f0c419', batt:'#22c1a8', junc:'#4cb7ee', hose:'#4a525b'
+  rack:'#4d545c', wire:'#f0c419', batt:'#22c1a8', junc:'#4cb7ee', hose:'#4a525b',
+  alert:'#e8402a'                 // 故障・要交換の部位（BBトルクセンサー）
 };
 
 /* --- コックピット基準 --- */
@@ -770,6 +784,11 @@ function buildBike(){
   tube(f,P(HT_TOP.x,HT_TOP.y),P(HT_BOT.x,HT_BOT.y),24,26,12);                // ヘッドチューブ
   tube(f,P(BB.x,BB.y),P(BB.x,BB.y,0),0,0,3);
   const bb=mesh('frame',COL.frameDark); tube(bb,P(0,0,-42),P(0,0,42),25,25,12); out.push(bb);
+  /* BBトルクセンサー（HYENA 57T031）＝BBユニットを兼ねる。実車は故障のため取り外し済み */
+  const ts=mesh('tsensor',COL.alert);
+  tube(ts,P(0,0,-52),P(0,0,52),21,21,12);                       // センサー本体（シェル内）
+  polyTube(ts,smooth([P(0,22,-26),P(-10,64,-30),P(-24,132,-26)],3),4,4);   // 信号ケーブル
+  out.push(ts);
   // チェーンステー / シートステー（左右）
   const cs=mesh('frame',COL.frame);
   tube(cs,P(6,6,36),P(REAR.x+16,REAR.y-4,66),15,10,8);
@@ -889,7 +908,7 @@ function buildBike(){
     cassette:P(REAR.x,REAR.y+60,60), motor:P(REAR.x,REAR.y,0), chain:P(-200,80,52),
     cockpit:P(BARC.x,BARC.y,0), frame:P(200,300,0), crank:P(0,-40,60),
     brakeF:P(FRONT.x-44,FRONT.y+66,-58), brakeR:P(REAR.x+64,REAR.y+38,-58),
-    headtop:P(HT_TOP.x,HT_TOP.y+18,0), bb:P(0,0,0),
+    headtop:P(HT_TOP.x,HT_TOP.y+18,0), bb:P(0,0,0), tsensor:P(0,10,0),
     wheelF:P(FRONT.x+150,FRONT.y+150,0), rack:P(-352,486,0),
     wheelR:P(REAR.x-140,REAR.y-140,0), seat:P(ST_TOP.x-40,ST_TOP.y+140,0), fork:P(FRONT.x-40,FRONT.y+200,0)
   };
@@ -1068,7 +1087,8 @@ const VIEW_DIR=V(0,0,-1);
 const HALF_V=vnorm(vadd(KEY_L,VIEW_DIR));
 const GLOSS={cassette:.55,chain:.45,crank:.42,rd:.3,rotorF:.5,rotorR:.5,motor:.3,
              rim:.35,wheelF:.3,wheelR:.3,frame:.16,fork:.16,cockpit:.2,
-             leverL:.22,leverR:.22,seat:.15,rack:.2,hose:.25,brakeF:.3,brakeR:.3};
+             leverL:.22,leverR:.22,seat:.15,rack:.2,hose:.25,brakeF:.3,brakeR:.3,
+             tsensor:.4};
 
 /** EW-RS910 は選択した取付位置のものだけ表示 */
 function visibleMesh(m){
@@ -1387,21 +1407,33 @@ const PARTS=[
   ['前ホイール','カーボンディープリム（約50mm）','wheelF','タンサイドウォールタイヤ・チューブレス'],
   ['後ホイール','HyDrive ハブモーター組み','wheelR','ZTTO 11-46T 装着済み・センターロックローター'],
   ['キャリア','リアキャリア','rack','実車装着済み'],
+  ['アシスト検出','HYENA BBトルクセンサー 57T031','tsensor',
+   'S/N JC1-00572／BBユニットを兼ねる。故障のため取り外し済み（2026-08-13）'],
 ];
-// 実車写真（2026-08-05 受領）から確認できた現況
-const STATUS_DATE='2026-08-05';
+// 実車写真（2026-08-05／2026-08-13 受領）から確認できた現況
+const STATUS_DATE='2026-08-13';
 const STATUS=[
+  ['ng','BBトルクセンサー（HYENA 57T031／S/N JC1-00572）が故障。取り外し済みで、ケーブル被覆が裂けている（2026-08-13 写真）'],
+  ['ng','同センサーは BB ユニットを兼ねるため、現状ではクランクを取り付けられない（駆動系は組めない）'],
   ['done','旧コンポーネントの取り外し（フレーム単体の状態）'],
   ['done','リアホイールに ZTTO 11-46T を装着済み（ハブモーター側）。センターロックローターも取付済み'],
   ['done','baracan MISSION 一体型ハンドルをフレームへ仮組み済み。コラムは未カット（ステム上に35〜40mm突き出し）'],
   ['done','リアキャリア装着済み。内装ライナーは通してある'],
   ['done','スターファングルナット圧入工具を入手済み（コラム＝アルミのため使用可）'],
   ['todo','前輪（カーボンディープ／Pirelli タンサイド）のビード上げ'],
-  ['todo','クランクとチェーンリングの確定（歯数未定）'],
-  ['todo','RD 取付／レバー・配線／ブリーディング／チェーン／E-TUBE 設定'],
-  ['todo','試走でポジション確定 → コラムカット → バーテープ'],
+  ['todo','RD 取付／レバー・配線／ジャンクション固定／ブリーディング／E-TUBE の電気設定（＝センサー無しでも進められる範囲）'],
+  ['hold','クランクとチェーンリングの確定（歯数未定）— トルクセンサー入手後'],
+  ['hold','チェーン長決定／変速の位置調整／試走でポジション確定 → コラムカット → バーテープ — トルクセンサー入手後'],
 ];
+/* 現況の表示ラベル： 状態 → [表示名, タグの色] */
+const STATUS_TAG={done:['完了','ok'], todo:['未実施','warn'],
+                  ng:['故障','ng'], hold:['センサー待ち','ng']};
 const TODO=[
+  'BBトルクセンサー（HYENA 57T031）の復旧方針 —（A）同型番で交換／（B）ケーブル・コネクタのみ補修／（C）通常BBを仮組みしてアシスト無しで機械側を仕上げる。どれを採るかで残工程の着手時期が決まる',
+  'HYENA 57T031 の入手性と納期 — Trek 販売店経由の取り寄せが基本。型番 57T031／S/N JC1-00572 を控えて問い合わせる',
+  'センサー故障がケーブル側か本体（ひずみゲージ）側か — テスターでの導通確認と、e-bike ディスプレイのエラー表示で切り分ける',
+  '仮BBを入れる場合の規格 — BBシェル幅・ねじ規格と、センサーと同じスピンドル長（チェーンラインが変わると 1× のライン出しをやり直すことになる）',
+  'センサー無し（またはエラー状態）で e-bike システムがどう振る舞うか — アシスト停止のみか、走行自体を止めるか。試走の可否に直結する',
   'チェーンリング歯数・クランク（既存流用か新規か）— 資料に記載なし。1×11 のチェーンライン確認が必要',
   'EW-RS910 と SM-JC41 の取付位置 — ③700mm／②250mm／⑤600mm が同時に成立する組み合わせを実測で確定させる（配線タブで比較可）',
   'BT-DN110 の収納位置 — e-bike メインバッテリー／モーター配線との干渉、内径クリアランス',
@@ -1418,9 +1450,15 @@ const TODO=[
    st: 'need'＝手配が必要／'check'＝在庫・規格を要確認
    EW-SD50 の不足分は配線タブの算出結果から自動で追記される（renderNeed）      */
 const NEED=[
+  ['need','アシスト','HYENA BBトルクセンサー 57T031','1個',
+   '故障品と同型番。S/N JC1-00572 の刻印を控えて Trek 販売店へ。BBユニット兼用のため、これが無いとクランク以降に着手できない','tsensor'],
+  ['check','アシスト','センサー用ケーブル／防水コネクタ','1式',
+   '（B）補修案を採る場合。断線がケーブル側だけなら結線し直しで復旧できる可能性がある。防水処理まで含めて用意する','tsensor'],
+  ['check','アシスト','仮組み用の通常BB（同規格・同スピンドル長）','1個',
+   '（C）暫定案を採る場合。アシスト無しで機械側（クランク〜チェーン〜変速調整〜試走〜コラムカット）まで進められる。センサーと同じチェーンラインになるものを選ぶ','tsensor'],
   ['need','駆動','ナローワイドチェーンリング','1枚','歯数が未確定。11-46T とハブモーターのアシスト特性から決める。これが決まらないとチェーン長も確定しない','crank'],
   ['check','駆動','クランクセット','1式','既存流用の可否とチェーンラインを実測で判断。流用不可なら新規手配','crank'],
-  ['check','駆動','BB（クランクに合う規格）','1組','クランクを新規手配する場合。既存BBの回転とガタも確認','frame'],
+  ['check','駆動','クランクに合うスピンドル規格の確認','1件','トルクセンサー（＝BB）側のスピンドル形式・長さにクランクが合うか。合わなければクランクごと見直し','tsensor'],
   ['need','駆動','チェーンリングボルト（シングル用）','1組','フロントシングル化でボルト長が変わる','crank'],
   ['check','駆動','ディレイラーハンガー（予備）','1個','規格を確認のうえ予備を1つ。曲がりは変速不良に直結','rd'],
   ['check','駆動','ミッシングリンク 11S（予備）','1組','KMC X11 付属分とは別に予備を持っておく','chain'],
@@ -1447,6 +1485,7 @@ const NEED=[
 const TOOL_INFO={
   'ワークスタンド':['基本','spec'],
   'デジタルカメラ（記録用）':['基本',''],
+  'テスター（導通確認）':['基本','spec'],
   '保護具':['基本',''],
   '空気圧計':['基本',''],
   'ノギス':['基本',''],
@@ -1555,11 +1594,12 @@ const MANUALS=[
   {id:'trek',cat:'車体',n:'Trek Domane+ AL 5',
    doc:'製品ページ（Trek Japan）',
    url:'https://www.trekbikes.com/jp/ja_JP/%E3%83%90%E3%82%A4%E3%82%AF/e-bike/e-road/domane-al-5/p/5270325/',
-   note:'e-bike システム側の取り扱いは Trek／HyDrive の説明書に従う'},
+   note:'e-bike システム側の取り扱いは Trek／HyDrive の説明書に従う。BBトルクセンサー（HYENA 57T031）などアシスト系の補修部品は一般流通が乏しく、Trek 販売店経由での取り寄せが基本'},
 ];
 /* 工程 → 参照すべきマニュアル */
 const STEP_MAN={
-  prep:['etube','gn'], wheel:['casg','gn'], crank:['gn'], rd:['m8050','gn'],
+  prep:['etube','gn'], wheel:['casg','gn'], crank:['gn','trek'], rd:['m8050','gn'],
+  tsensor:['trek','gn'],
   cockpit:['rx815','baracan'], wiring:['r8050','rx815'], junction:['r8050','rbwu'],
   brake:['gadbr','rx815'], chain:['cn','kmc'], etube:['etube','m8050','rbwu'],
   testfit:['gn'], steerer:['baracan','gn'], final:['gn','trek']
@@ -1568,6 +1608,7 @@ const SPEC=[
   ['車体','Trek Domane+ AL 5 ／ size 54'],
   ['駆動','HyDrive リアハブモーター（後輪ハブ内蔵）'],
   ['変速構成','1×11（フロントシングル／リア11速）'],
+  ['アシスト検出','HYENA BBトルクセンサー 57T031（S/N JC1-00572）／BBユニット兼用 ── 故障・交換待ち'],
   ['フリーボディ','YH-IF30.8（HG 11S 短ボディ・スペーサー不使用）'],
   ['シフト系','ST-RX815 L/R ＋ RD-M8050-GS（最大46T）'],
   ['スプロケット','ZTTO 11-46T'],
@@ -1589,19 +1630,26 @@ const GEOROWS=[
   ['スタック／リーチ','575 / 374 mm'],['タイヤ','700×32C（外径 686 mm 相当）']
 ];
 
-const STEP_IDS=['overview','prep','wheel','crank','rd','cockpit','wiring','junction',
-  'brake','chain','etube','testfit','steerer','final'];
+const STEP_IDS=['overview','prep','tsensor','wheel','rd','cockpit','wiring','junction',
+  'brake','etube','crank','chain','testfit','steerer','final'];
+/* 工程の並びは「トルクセンサーが無くても進められる作業」を先に、
+   センサー到着待ちの作業（駆動系・試走・コラムカット）を後ろにまとめている。
+   wait: その工程の work のうち、BBトルクセンサーが無いと着手できない項目の添字。
+         画面ではチェックできない状態で表示され、進捗率の母数からも外れる。       */
 const STEPS=[
- {t:'現況の確認と残作業',s:'ここから走行可能になるまで',g:['*'],
+ {t:'現況の確認と、今できる作業の切り分け',s:'トルクセンサー故障を織り込んだ全体像',g:['*'],
   view:{az:34,el:14,fit:['*']},
-  labels:[['cassette','装着済み'],['cockpit','仮組み済み'],['rd','これから']],
-  goal:'完成形と、現状から残っている作業の全体像を把握する。',
+  labels:[['tsensor','故障・取り外し済み'],['cockpit','仮組み済み'],['rd','これから']],
+  goal:'完成形と、BBトルクセンサーが無い状態でどこまで進められるかを把握する。',
   work:['3Dで完成形と各ユニットの位置関係を確認する',
+        'BBトルクセンサーの故障で止まる作業（クランク・チェーン・変速調整・試走・コラムカット）を把握する',
         '残り部品の員数を確認する（ST-RX815／RD-M8050-GS／クランクまわり／KMC X11／EW-SD50／各ジャンクション）',
         '配線タブで EW-SD50 の必要長を確認し、不足分を手配する',
         'ワークスタンドと作業スペースを用意する（ハブモーターで後輪が重い）'],
   tools:['ワークスタンド','デジタルカメラ（記録用）'],
-  notes:[['info','完了済みの作業','リアホイールへのカセット（ZTTO 11-46T）とローター装着、baracan MISSION の仮組み、リアキャリア装着。旧コンポーネントの取り外しも完了しているため、この手順書からは省いています。'],
+  notes:[['danger','BBトルクセンサーが故障','HYENA 57T031（S/N JC1-00572）が故障し、取り外し済みです。このセンサーは BB ユニットを兼ねるため、無い状態ではクランクが付きません。本手順書は「センサー無しでも進められる作業」を先に並べ替え、センサー待ちの項目には印を付けて進捗率の母数から外しています。'],
+         ['info','いま進められる範囲','STEP 2〜9（センサーの診断と手配／前輪／RD／ハンドル内装／Di2配線／ジャンクション固定／ブレーキのブリーディング／E-TUBE の電気設定）まで。ここまで済ませておけば、センサーが届いてから走行可能まで一気に詰められます。'],
+         ['info','完了済みの作業','リアホイールへのカセット（ZTTO 11-46T）とローター装着、baracan MISSION の仮組み、リアキャリア装着。旧コンポーネントの取り外しも完了しているため、この手順書からは省いています。'],
          ['danger','作業前に電源を落とす','e-bike システムの主電源を切り、可能ならメインバッテリーを外してから作業を始めてください。'],
          ['info','3Dは模式図','寸法は Domane AL 系の一般値に基づく参考モデルです。クリアランス判定は必ず実車で行ってください。']]},
 
@@ -1617,6 +1665,28 @@ const STEPS=[
   tools:['六角レンチ各種','トルクレンチ','内装配線ライナー','パーツクリーナー','ウエス','養生テープ'],
   notes:[['danger','必須','e-bike の主電源を落とさずに配線作業をしない。モーター系と Di2 系は別系統ですが、短絡・誤作動防止のため必ず遮断します。'],
          ['warn','ライナーを抜かない','フレームとハンドルに通っている内装ライナーは絶対に抜かないこと。抜くと経路の作り直しになります。端をテープで固定しておきます。']]},
+
+ {t:'BBトルクセンサーの診断と手配',s:'HYENA 57T031（故障・取り外し済み）',g:['tsensor','crank','frame'],
+  view:{az:200,el:16,fit:['tsensor','crank','chain']},   // 非ドライブ側から。チェーンリングでBBが隠れないように
+  labels:[['tsensor','HYENA 57T031（故障）'],['crank','ここが組めない']],
+  goal:'故障の切り分けと復旧方針を決め、部品を手配する。ここが決まるまで駆動系には入れない。',
+  work:['取り外したセンサー本体の表示を控える（HYENA Bottom Bracket Torque Sensor ／ P/N 57T031 ／ S/N JC1-00572 ／ 側面の矢印＝取付の向き）',
+        'ケーブルとコネクタの状態を接写で記録する（被覆の裂け・断線・端子の腐食・浸水痕）',
+        'テスターで導通を確認し、断線がケーブル側か本体（ひずみゲージ）側かを切り分ける',
+        'e-bike システムの電源を入れ、ディスプレイのエラー表示とコードを記録する（記録後は再び電源を落とす）',
+        'センサーのケーブルがフレーム内のどこを通り、どのコネクタに刺さっていたかを写真とメモで残す',
+        'BBシェルの規格（ねじ・シェル幅）とスピンドル形式・長さを実測し、手持ちクランクとの適合を確認する',
+        'BBシェルのねじ山とワン座面を清掃し、傷・かじりがないか確認する',
+        'Trek 販売店経由で HYENA 57T031 の入手可否と納期を確認する',
+        '復旧方針を決める：(A) 同型番で交換／(B) ケーブル・コネクタのみ補修／(C) 通常BBを仮組みしてアシスト無しで機械側を仕上げる',
+        '決めた方針と納期を記録し、センサー待ちの工程（STEP 10〜14）の着手時期を見積もる'],
+  tools:['テスター（導通確認）','BB工具','ノギス','デジタルカメラ（記録用）','パーツクリーナー','ウエス','グリス'],
+  torque:[['BBワン（参考）','35–50 N·m ／ メーカー指定値を優先']],
+  notes:[['danger','このセンサーは BB そのもの','HYENA の BBトルクセンサーは BB ユニットを兼ねています。代わりが入るまでクランクを取り付けられず、チェーン長の決定・変速の位置調整・試走・コラムカットまで芋づる式に止まります。'],
+         ['warn','切り分けの目安','写真ではケーブルの被覆が裂けています。断線がケーブル側だけなら結線のやり直しで復旧できる可能性がありますが、防水シールとひずみゲージ側の健全性までは保証できません。アシスト制御に直結する部品なので、確実を期すなら本体交換です。'],
+         ['warn','部品の入手','HYENA の補修部品は一般流通が乏しく、Trek 販売店経由の取り寄せが基本です。型番とシリアルを控えて問い合わせてください。'],
+         ['info','(C) 仮BB という選択肢','同じねじ規格・同じスピンドル長の通常BBが手に入れば、アシスト無しの状態で機械側（クランク〜チェーン〜変速調整〜スタンド上の確認）まで進められます。ただしアシスト系はエラーを出す前提で、公道での常用は避けてください。スピンドル長が違うとチェーンラインが変わり、1× のライン出しをやり直すことになります。'],
+         ['danger','分解しない','センサー本体を開けると防水と校正が崩れます。導通確認とケーブル側の補修までに留め、内部に手を入れないでください。']]},
 
  {t:'前輪のビード上げとホイール確認',s:'カーボンディープ／チューブレス',g:['wheelF','wheelR','rotorF','rotorR','motor','cassette'],
   view:{az:-18,el:10,fit:['wheelF','wheelR']},
@@ -1635,21 +1705,6 @@ const STEPS=[
   notes:[['danger','上限空気圧','カーボンリムとタイヤ双方の最大空気圧のうち、低い方を超えないこと。ビード上げ時も同様です。'],
          ['warn','ビードが上がらないとき','バルブコアを抜いて流量を稼ぐ／石けん水を追い足す／タイヤを一晩リムに嵌めたまま張っておく。それでも上がらなければ一度チューブを入れて形を付けます。'],
          ['info','46Tのクリアランス','ハブモーターは通常ハブより外径が大きいため、ロー（46T）でのチェーンとスポーク・モーター外径のすき間を車体組付後に必ず確認します。']]},
-
- {t:'クランクとチェーンリング',s:'1×化とチェーンライン',g:['crank','chain','frame'],
-  view:{az:-8,el:8,fit:['crank']},
-  labels:[['crank','チェーンリング（歯数要確定）'],['bb','チェーンライン実測']],
-  goal:'フロントシングルのチェーンラインを出す。',
-  work:['クランクの現状を確認する（未装着なら取り付ける）',
-        'BB の規格と状態を確認し、必要ならグリスアップする',
-        'シングル用チェーンリング（ナローワイド推奨）を取り付ける',
-        'チェーンラインを実測し、カセットの中央付近に来ることを確認する',
-        'クランクアームとチェーンステー、キャリアステーとのクリアランスを確認する',
-        '規定トルクで締結する'],
-  tools:['クランク工具','BB工具','トルクレンチ','ノギス','グリス'],
-  torque:[['クランクボルト','メーカー指定値'],['チェーンリングボルト','12–16 N·m（参考）']],
-  notes:[['danger','歯数が未確定','資料にチェーンリングの歯数の記載がありません。ハブモーターのアシスト特性と 11-46T の組合せから決めてください。歯数が決まらないとチェーン長も確定しません。'],
-         ['warn','チェーン落ち対策','1× ではチェーン落ちしやすくなります。ナローワイドのリング、必要ならチェーンウォッチャーの併用を検討してください。']]},
 
  {t:'RD-M8050-GS の取付',s:'ハンガー点検・B調整',g:['rd','cassette','frame'],
   view:{az:-52,el:8,fit:['rd','cassette']},
@@ -1728,55 +1783,94 @@ const STEPS=[
   notes:[['danger','オイル管理','ST-RX815・105 キャリパーともシマノ＝ミネラルオイル。DOT 系フルードは絶対に混用しない。パッド・ローターへの付着は制動力喪失に直結します。'],
          ['info','手順','エア溜まりはレバー側に集まります。キャリパー→レバーの順に押し上げるのが基本です。']]},
 
- {t:'チェーン取付（KMC X11 Aurora）',s:'1×11 のチェーン長決定',g:['chain','crank','cassette','rd'],
-  view:{az:-16,el:10,fit:['chain','crank','cassette','rd']},
-  labels:[['chain','KMC X11 Aurora'],['crank','チェーンリング'],['cassette','ロー 46T']],
-  goal:'46T ロー時にケージが伸び切らず、トップ側でたるまない長さに決める。',
-  work:['チェーンをフロント × ロー（46T）に掛け、RD を通さずに突き合わせ ＋2リンクで仮決めする',
-        'RD を通して、ロー側でケージが伸び切らないことを確認する',
-        'トップ側（11T）でケージが過度に前傾せず、チェーンがたるまないことを確認する',
-        'ミッシングリンクを進行方向に合わせて結合する',
-        '全ギアで手回しし、異音・干渉がないことを確認する'],
-  tools:['チェーンカッター','ミッシングリンクプライヤー','チェーンチェッカー'],
-  notes:[['warn','1×の注意','ワイドレシオでは長さの許容幅が狭くなります。長すぎるとトップでたるみ、短すぎるとロー投入時に RD を破損します。'],
-         ['info','Aurora','KMC X11 Aurora はカラーコーティング品。ミッシングリンクの向き（進行方向）に注意します。']]},
-
- {t:'E-TUBE PROJECT 設定',s:'ファームウェア・スイッチ割当・微調整',g:['rd','cassette','jc41','rs910','rs910dt','wu111','leverL','leverR'],
+ {t:'E-TUBE PROJECT 設定（電気側）',s:'FW更新・スイッチ割当まで。変速調整はセンサー後',g:['rd','cassette','jc41','rs910','rs910dt','wu111','leverL','leverR'],
   view:{az:-46,el:10,fit:['rd','cassette']},
-  labels:[['rd','RD 位置調整'],['cassette','各ギアで確認'],['rs910','充電ポートから接続']],
-  goal:'全ユニットを認識させ、変速位置とスイッチ機能を確定する。',
+  labels:[['rd','RD の動作確認'],['rs910','充電ポートから接続'],['wu111','ペアリング']],
+  goal:'チェーンを掛けずにできる電気側の設定をすべて済ませる。',
   work:['EW-RS910 の充電ポート経由で E-TUBE PROJECT に接続する',
         '全ユニット（レバー／RD／バッテリー／ワイヤレス）が認識されることを確認する',
         '全ユニットのファームウェアを最新に更新する',
-        'RD のアジャストモードで 0.2mm 単位のギア位置調整を行う',
-        '1×11 として動作範囲（トップ／ロー位置）を設定する',
+        'エラー診断を実行し、配線・接続の不良がないことを確認する',
         '左レバーの空きスイッチに機能を割り当てる（任意）',
         'マルチシフト（連続変速）速度を好みに設定する',
-        'EW-WU111 とスマートフォンをペアリングする'],
+        'EW-WU111 とスマートフォンをペアリングする',
+        'チェーンを掛けない状態でレバーを操作し、RD が全ストローク動くことを確認する',
+        'RD のアジャストモードで 0.2mm 単位のギア位置調整を行う（チェーンを掛けて実施）',
+        '1×11 として動作範囲（トップ／ロー位置）を設定する'],
+  wait:[8,9],
   tools:['PC またはスマートフォン','充電ケーブル SM-BCR2 相当','E-TUBE PROJECT'],
   notes:[['warn','必ず先にFW更新','異なるシリーズ（GRX × MTB）の混成のため、ファームウェアが古いと認識・動作しない場合があります。'],
+         ['info','ここまでは今できる','ユニットの認識・FW更新・スイッチ割当・ペアリングはチェーンが無くても完了できます。この工程を済ませておけば、センサーが届いたあとに残るのは位置調整だけです。'],
+         ['warn','位置調整は後回し','ギア位置の調整はチェーンが掛かっていないと判断できません。クランク（STEP 10）とチェーン（STEP 11）のあとにこの工程へ戻ってください。'],
          ['info','調整のコツ','ロー（46T）とトップ（11T）の両端で音鳴りが出ない中央値を探します。両端が両立しない場合は B テンションを再調整します。']]},
 
- {t:'仮組みでの試走とポジション確定',s:'コラムを切る前の最終確認',g:['*'],
+ {t:'クランクとチェーンリング',s:'センサー到着後に着手／先に測っておく',g:['crank','tsensor','chain','frame'],
+  view:{az:-8,el:8,fit:['crank','tsensor']},
+  labels:[['crank','チェーンリング（歯数要確定）'],['tsensor','ここにセンサーが入る']],
+  goal:'フロントシングルのチェーンラインを出す。センサーが入るまでは机上と単体作業だけ進める。',
+  work:['チェーンリングの歯数を決める（11-46T とアシスト特性、常用ケイデンスから）',
+        'ナローワイドチェーンリングをクランク単体に組み付け、規定トルクで締める',
+        '取り外したセンサー現物のスピンドル長を実測し、組んだときのチェーンラインを机上で試算する',
+        'クランクアーム長とキャリアステー・チェーンステーの位置関係を現物合わせで確認する',
+        'BBシェルのねじ山にグリスを塗る',
+        'トルクセンサー（＝BBユニット）を向き（矢印）に合わせてフレームへ取り付け、規定トルクで締める',
+        'センサーのケーブルを元の経路に通し、コントローラー側のコネクタへ確実に接続する',
+        'クランクを取り付け、規定トルクで締結する',
+        'チェーンラインを実測し、カセットの中央付近に来ることを確認する',
+        'クランクアームとチェーンステー、キャリアステーとのクリアランスを実測する',
+        'クランクを空転させ、異音・引っかかり・ケーブルの巻き込みがないことを確認する'],
+  wait:[4,5,6,7,8,9,10],
+  tools:['クランク工具','BB工具','トルクレンチ','ノギス','グリス'],
+  torque:[['BBワン（参考）','35–50 N·m ／ メーカー指定値を優先'],['クランクボルト','メーカー指定値'],['チェーンリングボルト','12–16 N·m（参考）']],
+  notes:[['danger','センサーが入るまで組めない','BBの位置にはトルクセンサー（HYENA 57T031）が入ります。代替品が手元に来るまでクランクは取り付けられません。センサー待ちの項目には印を付けています。'],
+         ['info','今できること','歯数の決定、クランク単体へのリング組付け、現物採寸によるチェーンラインの試算は、センサー無しでも進められます。ここまでやっておくと到着後が早いです。'],
+         ['danger','歯数が未確定','資料にチェーンリングの歯数の記載がありません。歯数が決まらないとチェーン長も確定しません。'],
+         ['warn','取付の向き','センサーには回転方向・取付向きを示す矢印があります。逆に入れるとアシストが正しく効きません。取り外し時の写真と照合してください。'],
+         ['warn','チェーン落ち対策','1× ではチェーン落ちしやすくなります。ナローワイドのリング、必要ならチェーンウォッチャーの併用を検討してください。']]},
+
+ {t:'チェーン取付（KMC X11 Aurora）',s:'1×11 のチェーン長決定（センサー到着後）',g:['chain','crank','cassette','rd'],
+  view:{az:-16,el:10,fit:['chain','crank','cassette','rd']},
+  labels:[['chain','KMC X11 Aurora'],['crank','チェーンリング'],['cassette','ロー 46T']],
+  goal:'46T ロー時にケージが伸び切らず、トップ側でたるまない長さに決める。',
+  work:['チェーンの員数と付属ミッシングリンクを確認し、必要なら予備を手配する',
+        'チェーンをフロント × ロー（46T）に掛け、RD を通さずに突き合わせ ＋2リンクで仮決めする',
+        'RD を通して、ロー側でケージが伸び切らないことを確認する',
+        'トップ側（11T）でケージが過度に前傾せず、チェーンがたるまないことを確認する',
+        'ミッシングリンクを進行方向に合わせて結合する',
+        '全ギアで手回しし、異音・干渉がないことを確認する',
+        'E-TUBE（STEP 9）に戻り、ギア位置の調整と動作範囲の設定を行う'],
+  wait:[1,2,3,4,5,6],
+  tools:['チェーンカッター','ミッシングリンクプライヤー','チェーンチェッカー'],
+  notes:[['danger','クランクが付いてから','チェーン長はチェーンリングが付いていないと決められません。トルクセンサーとクランク（STEP 10）が終わってから着手してください。切ってしまうとやり直しが効きません。'],
+         ['warn','1×の注意','ワイドレシオでは長さの許容幅が狭くなります。長すぎるとトップでたるみ、短すぎるとロー投入時に RD を破損します。'],
+         ['info','Aurora','KMC X11 Aurora はカラーコーティング品。ミッシングリンクの向き（進行方向）に注意します。']]},
+
+ {t:'仮組みでの試走とポジション確定',s:'コラムを切る前の最終確認（センサー到着後）',g:['*'],
   view:{az:-30,el:14,fit:['*']},
   labels:[['cockpit','ハンドル高さを確定'],['rd','全段変速を確認'],['brakeF','制動を確認']],
   goal:'コラムを切る前に、ハンドル高さと各部のセッティングを確定させる。',
-  work:['全ボルトの締結を確認する',
+  work:['ここまでに組んだ全ボルトの締結を確認する',
+        'ブレーキの引きしろとローターの擦れを確認する',
+        'ハンドル切れ角いっぱいで配線・ホースが突っ張らないことを確認する',
         'スタンド上で 11→46T まで全段変速を確認する',
         'ロー（46T）でスポーク・モーターへの干渉がないことを確認する',
-        'ブレーキの引きしろとローターの擦れを確認する',
+        'e-bike メインバッテリーを戻し、アシストが正常に立ち上がることを確認する',
         'スペーサー構成を替えながら低速で試走し、ハンドル高さを決める',
         'レバーの角度とリーチを微調整して確定させる',
         '確定したスペーサー構成を写真とメモで記録する'],
+  wait:[3,4,5,6,7,8],
   tools:['トルクレンチ','六角レンチ','保護具'],
   notes:[['danger','ここで確定させる','次の工程でコラムを切ると高さは戻せません。必ず試走で決めてから進んでください。'],
+         ['warn','ペダルを回せる状態が前提','ポジション出しは実際に踏んで決めるものです。トルクセンサー（または仮BB）が入り、駆動系が組み上がるまで着手できません。'],
+         ['info','締結・ブレーキの確認は今できる','すでに組んだ部分のボルトの確認と、ブレーキの引きしろ・ローターの擦れ、ハンドル切れ角の確認は駆動系と無関係に進められます。'],
          ['warn','ハブモーター車','トルクが大きく、変速不良が駆動系の破損に直結します。必ずスタンド上で全段確認してから試走します。']]},
 
- {t:'コラムカットと仕上げ',s:'アルミコラム／スターナット・バーテープ',g:['cockpit','fork','frame'],
+ {t:'コラムカットと仕上げ',s:'アルミコラム／スターナット・バーテープ（試走後）',g:['cockpit','fork','frame'],
   view:{az:48,el:22,fit:['cockpit']},
   labels:[['headtop','ここを切る'],['cockpit','baracan MISSION']],
   goal:'確定した高さでコラムを切り、プリロードを出して仕上げる。',
-  work:['確定したスペーサー構成で、コラム上端がステム上面より 3〜5mm 低くなる位置に印を付ける',
+  work:['ソーガイド・スターファングルナット・バーテープなど、この工程で使うものを揃えておく',
+        '確定したスペーサー構成で、コラム上端がステム上面より 3〜5mm 低くなる位置に印を付ける',
         '内装のホースと EW-SD50 をコラムから確実に逃がす',
         'ソーガイドを使い、直角に切断する。切断面のバリを取る',
         'スターファングルナットを上端から約15mmの深さに圧入する（コラムはアルミ）',
@@ -1784,26 +1878,32 @@ const STEPS=[
         'トップキャップでプリロードを与えてから、ステムを規定トルクで締める',
         'ヘッドのガタとハンドルの直進性を確認する',
         'ST-RX815 を本締めし、バーテープを巻く'],
+  wait:[1,2,3,4,5,6,7,8],
   tools:['ソーガイド','金切り鋸','ヤスリ','スターファングルナット圧入工具（HOUSON・入手済み）','トルクレンチ','マスキングテープ','バーテープ'],
   torque:[['ステムクランプ','5–6 N·m（メーカー指定優先）'],['バークランプ','6–8 N·m（参考）'],['トップキャップ','プリロード調整のみ・締めすぎない']],
-  notes:[['info','本車はアルミコラム','フォーク＝カーボン、コラム＝アルミ。スターファングルナットが使用できます（購入済みの圧入工具でOK）。一般則として、カーボンコラムにスターナットは使用不可（要エキスパンダー）です。'],
+  notes:[['danger','試走でポジションが決まってから','コラムは一度切ると戻せません。踏んで決める試走（STEP 12）が前提のため、トルクセンサーが入るまでは着手しないでください。工具と材料を揃えるところまでが今できる作業です。'],
+         ['info','本車はアルミコラム','フォーク＝カーボン、コラム＝アルミ。スターファングルナットが使用できます（購入済みの圧入工具でOK）。一般則として、カーボンコラムにスターナットは使用不可（要エキスパンダー）です。'],
          ['warn','切粉','切断面のバリは必ず取り、切粉がヘッドセット内に残らないよう清掃します。'],
          ['warn','圧入の深さ','浅いとトップキャップのボルトが届かず、深すぎるとプリロードが掛かりません。上端から約15mmが目安（実測で調整）。']]},
 
- {t:'最終チェックと本試走',s:'締結・変速・制動の確認',g:['*'],
+ {t:'最終チェックと本試走',s:'締結・変速・制動・アシストの確認',g:['*'],
   view:{az:-30,el:14,fit:['*']},
   labels:[['rd','全ギア確認'],['brakeF','制動確認'],['cockpit','増し締め']],
   goal:'公道に出す前に、締結トルクと全機能を確認する。',
-  work:['全ボルトの締結トルクを再確認する',
+  work:['タイヤの空気圧とエア漏れを確認する',
+        '全ボルトの締結トルクを再確認する',
         'スタンド上で全段変速を再確認する',
         'ブレーキの引きしろとローターの擦れを確認する',
         'ハンドル切れ角いっぱいで配線の突っ張りがないことを確認する',
-        'タイヤの空気圧とエア漏れを確認する',
-        'e-bike メインバッテリーを戻し、アシスト動作を確認する',
+        'e-bike メインバッテリーを戻し、アシスト動作とトルクセンサーの反応を確認する',
+        'ディスプレイにエラーが出ていないことを確認する',
         '低速で試走し、変速・制動・異音を確認する',
         '走行 50–100 km 後に再点検する（初期伸び・増し締め）'],
+  wait:[1,2,3,4,5,6,7,8],
   tools:['トルクレンチ','空気圧計','保護具'],
-  notes:[['danger','試走前','ハブモーター車はトルクが大きく、変速不良が駆動系の破損に直結します。必ずスタンド上で全段確認してから試走してください。']]}
+  notes:[['danger','試走前','ハブモーター車はトルクが大きく、変速不良が駆動系の破損に直結します。必ずスタンド上で全段確認してから試走してください。'],
+         ['danger','アシストの確認は必須','トルクセンサー交換後の初回は、踏力に対してアシストが素直に立ち上がるか、離すと素早く切れるかを人けのない場所で確認してください。取付向きを誤ると挙動が不自然になります。'],
+         ['warn','仮BB（C案）で走らせる場合','アシストは効かず、システムはエラーを表示したままになります。重量のある車体をアシスト無しで走らせることになるため、確認は短距離に留めてください。']]}
 ];
 
 /* ============================================================
@@ -1813,22 +1913,40 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let cur=0;
 STEPS.forEach((s,i)=>s.id=STEP_IDS[i]||('step'+i));
-const KEY='domane-di2-progress-v3';
+// 工程を組み替えたため v4（v3 のチェックとは対応が取れない）
+const KEY='domane-di2-progress-v4';
 let done={};
 try{done=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){done={};}
 const saveDone=()=>{try{localStorage.setItem(KEY,JSON.stringify(done));}catch(e){}};
 
-function totalItems(){return STEPS.reduce((a,s)=>a+s.work.length,0);}
-function doneCount(){return Object.values(done).filter(Boolean).length;}
+/* --- トルクセンサー待ちの扱い ---------------------------------------------
+   wait に載っている作業は「部品が来るまで着手できない」ものとして、
+   チェック不可・進捗率の母数外にする。進捗率＝いま実施できる分の消化率。   */
+const isWait=(i,j)=>!!(STEPS[i].wait&&STEPS[i].wait.indexOf(j)>=0);
+/** ''＝待ちなし／'partial'＝一部待ち／'blocked'＝全部待ち */
+function stepHold(i){
+  const s=STEPS[i], n=(s.wait||[]).length;
+  return !n ? '' : (n>=s.work.length ? 'blocked' : 'partial');
+}
 const dkey=(i,j)=>STEPS[i].id+'-'+j;
-function stepDone(i){return STEPS[i].work.every((_,j)=>done[dkey(i,j)]);}
+function eachItem(fn){STEPS.forEach((s,i)=>s.work.forEach((w,j)=>fn(i,j,w)));}
+function totalItems(){let n=0; eachItem((i,j)=>{if(!isWait(i,j))n++;}); return n;}
+function doneCount(){let n=0; eachItem((i,j)=>{if(!isWait(i,j)&&done[dkey(i,j)])n++;}); return n;}
+function waitTotal(){let n=0; eachItem((i,j)=>{if(isWait(i,j))n++;}); return n;}
+function stepDone(i){
+  const idx=STEPS[i].work.map((_,j)=>j).filter(j=>!isWait(i,j));
+  return idx.length>0 && idx.every(j=>done[dkey(i,j)]);
+}
 
 function renderChips(){
   const c=$('#chips'); c.innerHTML='';
   STEPS.forEach((s,i)=>{
+    const hold=stepHold(i);
     const b=document.createElement('button');
-    b.className='chip'+(i===cur?' cur':'')+(stepDone(i)?' done':'');
-    b.textContent=i; b.title=s.t;
+    b.className='chip'+(i===cur?' cur':'')+(stepDone(i)?' done':'')+
+      (hold?' hold':'')+(hold==='blocked'?' blocked':'');
+    b.textContent=i;
+    b.title=s.t+(hold==='blocked'?'（トルクセンサー待ち）':hold?'（一部トルクセンサー待ち）':'');
     b.onclick=()=>go(i);
     c.appendChild(b);
   });
@@ -1836,15 +1954,25 @@ function renderChips(){
   if(cel) c.scrollTo({left:cel.offsetLeft-c.clientWidth/2+22,behavior:'smooth'});
 }
 function renderStep(){
-  const s=STEPS[cur], el=$('#stepbody');
+  const s=STEPS[cur], el=$('#stepbody'), hold=stepHold(cur);
   let h=`<div class="card">
     <span class="stepno">STEP ${cur} / ${STEPS.length-1}</span>
     <h2>${esc(s.t)}</h2><p class="sub">${esc(s.s)}</p>
-    <div class="note info"><b>この工程の目的</b>${esc(s.goal)}</div>
-    <h3 class="sec">作業手順</h3><ul class="work">`;
+    <div class="note info"><b>この工程の目的</b>${esc(s.goal)}</div>`;
+  if(hold){
+    const n=(s.wait||[]).length, m=s.work.length;
+    h+=`<div class="note ${n>m/2?'danger':''}"><b>${m} 項目中 ${n} 項目がトルクセンサー待ちです</b>`+
+       `「センサー待ち」の印が付いた作業は、BBトルクセンサー（HYENA 57T031）が入るまで着手できません。`+
+       `残る ${m-n} 項目は今できます（進捗率の母数はこちらだけ）。</div>`;
+  }
+  h+='<h3 class="sec">作業手順</h3><ul class="work">';
   s.work.forEach((w,j)=>{
     const k=dkey(cur,j);
-    h+=`<li><label><input type="checkbox" data-k="${k}" ${done[k]?'checked':''}><span>${esc(w)}</span></label></li>`;
+    if(isWait(cur,j)){
+      h+=`<li class="wait"><label><input type="checkbox" disabled><span>${esc(w)}<span class="tag warn">センサー待ち</span></span></label></li>`;
+    }else{
+      h+=`<li><label><input type="checkbox" data-k="${k}" ${done[k]?'checked':''}><span>${esc(w)}</span></label></li>`;
+    }
   });
   h+='</ul>';
   if(s.tools&&s.tools.length){
@@ -1883,6 +2011,27 @@ function renderStep(){
 function updateProgress(){
   const p=Math.round(doneCount()/totalItems()*100);
   $('#prog').textContent=p+'%'; $('#barfill').style.width=p+'%';
+  renderHoldBanner(p);
+}
+/** 手順タブの先頭に出す「センサー待ち」の説明。進捗率も“今できる分”で示す */
+function renderHoldBanner(p){
+  const el=$('#holdbanner'); if(!el) return;
+  const held=STEPS.map((s,i)=>i).filter(i=>stepHold(i));
+  if(!held.length){ el.innerHTML=''; return; }
+  const blocked=held.filter(i=>stepHold(i)==='blocked');
+  const ts=STEPS.findIndex(s=>s.id==='tsensor'), last=STEPS.findIndex(s=>s.id==='etube');
+  el.innerHTML=`<div class="card">
+    <span class="stepno">部品待ち</span>
+    <h2>BBトルクセンサーが故障中</h2>
+    <p class="sub">HYENA Bottom Bracket Torque Sensor ／ P/N 57T031 ／ S/N JC1-00572</p>
+    <div class="note danger"><b>このセンサーは BB ユニットを兼ねています</b>
+      代わりが入るまでクランクが付かず、チェーン長・変速の位置調整・試走・コラムカットまで止まります。
+      いま進められるのは <b>STEP ${ts}〜${last}</b>。センサー待ちの作業は STEP ${held.join('・')} に印付きで残してあります。</div>
+    <p class="mini">ヘッダーの ${p}% ＝ いま実施できる ${totalItems()} 項目の消化率（センサー待ちの ${waitTotal()} 項目は母数から除外${
+      blocked.length?`／STEP ${blocked.join('・')} は全体が待ち`:''}）</p>
+    <div class="pillrow"><button class="focusbtn" id="gots">STEP ${ts}：センサーの診断と手配へ</button></div>
+  </div>`;
+  const b=$('#gots'); if(b) b.onclick=()=>go(STEPS.findIndex(s=>s.id==='tsensor'));
 }
 function applyView(){
   const s=STEPS[cur];
@@ -1974,7 +2123,7 @@ function renderParts(){
   renderNeed(); renderTools(); renderManuals();
   $('#statusdate').textContent=STATUS_DATE+' 時点';
   $('#statuslist').innerHTML=STATUS.map(r=>
-    `<div class="lenrow"><div><span class="tag ${r[0]==='done'?'ok':'warn'}">${r[0]==='done'?'完了':'未実施'}</span> ${esc(r[1])}</div></div>`).join('');
+    `<div class="lenrow"><div><span class="tag ${STATUS_TAG[r[0]][1]}">${STATUS_TAG[r[0]][0]}</span> ${esc(r[1])}</div></div>`).join('');
   $('#spectable').innerHTML=SPEC.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('');
   $('#geotable').innerHTML=GEOROWS.map(r=>`<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('');
 }
@@ -2003,6 +2152,7 @@ function renderNeed(){
     b.onclick=()=>focusGroup(b.dataset.g,b.closest('.lenrow').querySelector('b').textContent);
   });
   $('#neednote').innerHTML='<b>このリストの根拠</b>実車写真から確認できた現況と、資料に記載のない項目（チェーンリング歯数など）から作成しています。'+
+    '先頭の<b>「アシスト」区分は 2026-08-13 に故障が判明した BBトルクセンサー関連</b>で、これが入るまで駆動系（STEP 10 以降）には着手できません。'+
     'EW-SD50 の行は配線タブの取付位置の選択に連動します。<b>手持ちの在庫と照合し、発注前に実測してください。</b>';
 }
 /* --- 工具リスト --- */
@@ -2210,11 +2360,19 @@ function buildPrint(){
     `<tr><td>${r[0]==='need'?'要手配':'要確認'}</td><td>${esc(r[1])}</td>
      <td><span class="chk"></span><b>${esc(r[2])}</b>　${esc(r[3])}<br><span style="font-size:8pt">${esc(r[4])}</span></td></tr>`).join('')}</table>
   <h2>5. 工具リスト</h2>${printTools()}
-  <h2 class="pgbreak">6. 施工手順</h2>`;
+  <h2 class="pgbreak">6. 施工手順</h2>
+  <div class="pnote"><b>BBトルクセンサー（HYENA 57T031 ／ S/N JC1-00572）が故障・取り外し済み</b>：
+  このセンサーは BB ユニットを兼ねるため、代わりが入るまでクランクを取り付けられません。
+  工程は<b>センサー無しで進められる作業（STEP ${STEPS.findIndex(s=>s.id==='tsensor')}〜${STEPS.findIndex(s=>s.id==='etube')}）を先に</b>並べ、
+  センサーが必要な作業には［トルクセンサー待ち］と付記しています（全 ${waitTotal()} 項目）。
+  いま実施できるのは ${totalItems()} 項目です。</div>`;
   STEPS.forEach((s,i)=>{
-    h+=`<div class="pstep"><h3>STEP ${i}　${esc(s.t)}　<span style="font-weight:400;font-size:8.5pt">（${esc(s.s)}）</span></h3>
+    const hold=stepHold(i);
+    h+=`<div class="pstep"><h3>STEP ${i}　${esc(s.t)}　<span style="font-weight:400;font-size:8.5pt">（${esc(s.s)}${
+      hold==='blocked'?'／全体がトルクセンサー待ち':hold?'／一部トルクセンサー待ち':''}）</span></h3>
     <div style="font-size:8.5pt;margin-bottom:1mm">目的：${esc(s.goal)}</div><ul>`;
-    s.work.forEach(w=>h+=`<li><span class="chk"></span>${esc(w)}</li>`);
+    s.work.forEach((w,j)=>h+=`<li><span class="chk"></span>${esc(w)}${
+      isWait(i,j)?'　<b>［トルクセンサー待ち］</b>':''}</li>`);
     h+='</ul>';
     if(s.tools&&s.tools.length) h+=`<div style="font-size:8.5pt">工具：${s.tools.map(esc).join('／')}</div>`;
     const pm=(STEP_MAN[s.id]||[]).map(id=>MANUALS.find(m=>m.id===id)).filter(Boolean);
@@ -2224,7 +2382,7 @@ function buildPrint(){
     h+='</div>';
   });
   h+=`<h2>7. 現況（${esc(STATUS_DATE)} 時点・実車写真より）</h2><ul>${
-    STATUS.map(r=>`<li>[${r[0]==='done'?'完了':'未実施'}] ${esc(r[1])}</li>`).join('')}</ul>
+    STATUS.map(r=>`<li>[${STATUS_TAG[r[0]][0]}] ${esc(r[1])}</li>`).join('')}</ul>
   <h2>8. 要確認・未確定事項</h2><ul>${TODO.map(t=>`<li><span class="chk"></span>${esc(t)}</li>`).join('')}</ul>
   <h2>9. メーカーマニュアル（URL・2026-08 時点）</h2>
   <table><tr><th style="width:26%">対象</th><th style="width:auto">文書 ／ URL</th></tr>
@@ -2253,7 +2411,9 @@ function buildScenes(){
       i, anim,
       dur: clamp(5.5+st.work.length*0.85, 6, 14),
       az: st.view.az, el: st.view.el, fit: st.view.fit||st.g,
-      title: st.t, sub: st.s, lines: st.work
+      title: st.t,
+      sub: st.s + (stepHold(i)==='blocked' ? '（トルクセンサー待ち）' : ''),
+      lines: st.work.map((w,j)=>isWait(i,j) ? '［センサー待ち］'+w : w)
     };
   });
   // 配線工程は「1本ずつ、上流から順につなぐ」流れが分かるようにシーンを割る

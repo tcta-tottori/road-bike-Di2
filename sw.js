@@ -2,7 +2,7 @@
    方針: stale-while-revalidate
    - 表示は常にキャッシュから即返す（電波の悪い作業場でも開く）
    - 裏で取得し直してキャッシュを更新する。次回起動時に最新が出る */
-const VERSION = 'v4';
+const VERSION = 'v5';   // 2026-08-13 トルクセンサー故障に伴う工程の組み替え
 const CACHE = 'domane-di2-' + VERSION;
 const ASSETS = [
   './',
