@@ -159,12 +159,6 @@ body.playing .vhint{display:none}
   content:""; position:absolute; right:3px; top:3px; width:7px; height:7px;
   border-radius:50%; background:var(--ok);
 }
-/* トルクセンサー待ち（部品が届くまで着手できない作業を含む工程） */
-.chip.hold::before{
-  content:""; position:absolute; left:3px; bottom:3px; width:7px; height:7px;
-  border-radius:50%; background:var(--warn);
-}
-.chip.blocked{border-style:dashed; opacity:.7}
 .card{
   background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
   padding:14px; margin-bottom:12px;
@@ -193,10 +187,9 @@ ul.work input{
 }
 ul.work label span{font-size:14px}
 ul.work input:checked + span{color:var(--ink2); text-decoration:line-through}
-ul.work li.wait{background:rgba(199,119,0,.07); border-radius:6px}
-ul.work li.wait label{cursor:default}
-ul.work li.wait label span{color:var(--ink2)}
-ul.work input:disabled{opacity:.4}
+/* 工程の説明図（手書きSVG） */
+.fig{margin:10px 0 4px}
+.fig .cap{font-size:11px; color:var(--ink2); margin-top:4px}
 ul.plain{margin:0; padding-left:1.15em; font-size:14px}
 ul.plain li{margin:3px 0}
 table.t{width:100%; border-collapse:collapse; font-size:13px}
@@ -320,7 +313,7 @@ select,.sel{
       <h1>Domane+ AL5 ／ Di2化 施工手順</h1>
       <p>Trek Domane+ AL 5 (size 54) ・1×11 ・ST-RX815 × RD-M8050-GS</p>
     </div>
-    <div class="progress-ring"><b id="prog">0%</b>今できる分</div>
+    <div class="progress-ring"><b id="prog">0%</b>進捗</div>
   </header>
 
   <div class="viewer" id="viewer">
@@ -357,7 +350,7 @@ select,.sel{
 
     <!-- ============ 手順 ============ -->
     <section class="pane active" id="p-step">
-      <div id="holdbanner"></div>
+      <div id="newsbanner"></div>
       <div class="chips" id="chips"></div>
       <div id="stepbody"></div>
     </section>
@@ -480,9 +473,8 @@ select,.sel{
           <li>単一HTMLファイル。外部通信なしでオフライン動作します。</li>
           <li>3Dはcanvasの自作レンダラ（ライブラリ不使用）による<b>模式図</b>です。CADデータではありません。</li>
           <li>トルク値はすべて<b>参考値</b>です。必ず各メーカーの最新ディーラーマニュアルを確認してください。</li>
-          <li>チェック状況はこの端末のブラウザに保存されます（localStorage）。<b>2026-08-13 の工程組み替えで保存キーを更新した</b>ため、それ以前のチェックは引き継がれません。</li>
-          <li><b>BBトルクセンサー（HYENA 57T031）の故障</b>に合わせ、センサー無しで進められる作業を前に、
-            センサー待ちの作業を後ろにまとめています。待ちの項目はチェックできない状態で表示され、進捗率の母数からも外れます。</li>
+          <li>チェック状況はこの端末のブラウザに保存されます（localStorage）。2026-09-27 の並べ替えでもチェック済みの項目は引き継がれます（センサーの工程だけは内容が変わったため新規）。</li>
+          <li><b>BBトルクセンサー（HYENA 57T031）の交換品が到着</b>したため、「センサー待ち」の印を外し、工程を組み立ての順に戻しました。</li>
         </ul>
         <div class="pillrow" style="margin-top:10px">
           <button class="focusbtn" id="btnPlayAll">▶ 解説を最初から再生</button>
@@ -566,10 +558,35 @@ function basisFor(axis){
   const u=vnorm(vcross(a,up)); const w=vcross(a,u);
   return [u,w];
 }
+/** 面の法線（Newell 法。凹多角形でも向きが安定する） */
+function faceNormal(vs,f){
+  let x=0,y=0,z=0;
+  for(let k=0,n=f.length;k<n;k++){
+    const a=vs[f[k]], b=vs[f[(k+1)%n]];
+    x+=(a.y-b.y)*(a.z+b.z); y+=(a.z-b.z)*(a.x+b.x); z+=(a.x-b.x)*(a.y+b.y);
+  }
+  return V(x,y,z);
+}
+/** start〜end の面の頂点順を、ref（内側の点。関数なら面の重心→内側の点）から
+    離れる向きが表になるよう揃える。描画時はこの向きで裏面を省く */
+function orient(m,start,ref,end=m.f.length){
+  for(let i=start;i<end;i++){
+    const f=m.f[i]; let cx=0,cy=0,cz=0;
+    for(const k of f){ cx+=m.v[k].x; cy+=m.v[k].y; cz+=m.v[k].z; }
+    const c=V(cx/f.length,cy/f.length,cz/f.length);
+    const r=typeof ref==='function'?ref(c):ref;
+    if(vdot(faceNormal(m.v,f),vsub(c,r))<0) f.reverse();
+  }
+}
+/** 軸まわりの輪（トーラス・リム）で、面の重心に対応する断面中心を返す */
+const ringRef=(c,axis,R)=>p=>{
+  const d=vsub(p,c), a=vdot(d,axis), pl=vsub(d,vmul(axis,a));
+  return vadd(c,vmul(vnorm(pl),R));
+};
 /** 円筒（テーパー可）*/
 function tube(m,a,b,r1,r2=r1,seg=8,caps=true){
   const ax=vsub(b,a); if(vlen(ax)<1e-6) return m;
-  const [u,w]=basisFor(ax);
+  const [u,w]=basisFor(ax), f0=m.f.length;
   const i0=pushRing(m,a,u,w,r1,seg), i1=pushRing(m,b,u,w,r2,seg);
   for(let i=0;i<seg;i++){const j=(i+1)%seg; m.f.push([i0+i,i0+j,i1+j,i1+i]);}
   if(caps){
@@ -577,11 +594,12 @@ function tube(m,a,b,r1,r2=r1,seg=8,caps=true){
     for(let i=0;i<seg;i++){c0.push(i0+seg-1-i); c1.push(i1+i);}
     m.f.push(c0); m.f.push(c1);
   }
+  orient(m,f0,vmul(vadd(a,b),0.5));
   return m;
 }
 /** 直方体（Z軸まわり回転可）*/
 function box(m,c,sx,sy,sz,rot=0){
-  const co=Math.cos(rot),si=Math.sin(rot),i0=m.v.length;
+  const co=Math.cos(rot),si=Math.sin(rot),i0=m.v.length,f0=m.f.length;
   const pts=[[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
   for(const p of pts){
     const x=p[0]*sx/2, y=p[1]*sy/2, z=p[2]*sz/2;
@@ -589,6 +607,7 @@ function box(m,c,sx,sy,sz,rot=0){
   }
   const f=[[0,1,2,3],[5,4,7,6],[4,0,3,7],[1,5,6,2],[3,2,6,7],[4,5,1,0]];
   for(const q of f) m.f.push(q.map(i=>i+i0));
+  orient(m,f0,c);
   return m;
 }
 /** 円板（両面）*/
@@ -600,7 +619,7 @@ function disc(m,c,axis,r,seg=20){
 }
 /** トーラス（タイヤ）*/
 function torus(m,c,axis,R,r,segM=26,segm=7){
-  const [u,w]=basisFor(axis); const i0=m.v.length; const ax=vnorm(axis);
+  const [u,w]=basisFor(axis); const i0=m.v.length, f0=m.f.length; const ax=vnorm(axis);
   for(let i=0;i<segM;i++){
     const a=i/segM*Math.PI*2;
     const dir=vadd(vmul(u,Math.cos(a)),vmul(w,Math.sin(a)));
@@ -614,11 +633,12 @@ function torus(m,c,axis,R,r,segM=26,segm=7){
     for(let j=0;j<segm;j++){const j2=(j+1)%segm;
       m.f.push([i0+i*segm+j, i0+i2*segm+j, i0+i2*segm+j2, i0+i*segm+j2]);
     }}
+  orient(m,f0,ringRef(c,ax,R));
   return m;
 }
 /** リム（外筒＋内筒＋側面）*/
 function rimBand(m,c,axis,rOut,rIn,width,seg=26){
-  const [u,w]=basisFor(axis); const ax=vnorm(axis);
+  const [u,w]=basisFor(axis); const ax=vnorm(axis), f0=m.f.length;
   const cA=vadd(c,vmul(ax,width/2)), cB=vsub(c,vmul(ax,width/2));
   const oA=pushRing(m,cA,u,w,rOut,seg), oB=pushRing(m,cB,u,w,rOut,seg);
   const iA=pushRing(m,cA,u,w,rIn,seg),  iB=pushRing(m,cB,u,w,rIn,seg);
@@ -628,6 +648,7 @@ function rimBand(m,c,axis,rOut,rIn,width,seg=26){
     m.f.push([oA+i,iA+i,iA+j,oA+j]);
     m.f.push([oB+j,iB+j,iB+i,oB+i]);
   }
+  orient(m,f0,ringRef(c,ax,(rOut+rIn)/2));
   return m;
 }
 /** Catmull-Rom で点列をなめらかに */
@@ -662,6 +683,105 @@ function mirrorZ(m){
   n.lines=m.lines.map(l=>l.slice());
   return n;
 }
+/** 平面の輪郭 poly=[[u,v],...] を h0→h1 の厚みで押し出す。map(u,v,h) で車体座標へ */
+function prism(m,poly,h0,h1,map){
+  const n=poly.length, i0=m.v.length, f0=m.f.length, hm=(h0+h1)/2;
+  for(const [u,v] of poly) m.v.push(map(u,v,h0));
+  for(const [u,v] of poly) m.v.push(map(u,v,h1));
+  const a=[],b=[];
+  for(let i=0;i<n;i++){ a.push(i0+n-1-i); b.push(i0+n+i); }
+  m.f.push(a,b);
+  for(let i=0;i<n;i++){ const j=(i+1)%n; m.f.push([i0+i,i0+j,i0+n+j,i0+n+i]); }
+  // 表裏を揃える：上下面は厚みの中央、側面は辺の内側を基準にする（凹んだ輪郭でも正しく向く）
+  let A=0,cu=0,cv=0;
+  for(let i=0;i<n;i++){ const p=poly[i],q=poly[(i+1)%n]; A+=p[0]*q[1]-q[0]*p[1]; cu+=p[0]; cv+=p[1]; }
+  orient(m,f0,map(cu/n,cv/n,hm),f0+2);
+  const sg=A>0?1:-1;
+  for(let i=0;i<n;i++){
+    const p=poly[i],q=poly[(i+1)%n], du=q[0]-p[0], dv=q[1]-p[1], L=Math.hypot(du,dv)||1;
+    const ou=sg*dv/L, ov=-sg*du/L;               // 輪郭の外向き
+    orient(m,f0+2+i,map((p[0]+q[0])/2-ou,(p[1]+q[1])/2-ov,hm),f0+3+i);
+  }
+  return m;
+}
+/** XY 平面の輪郭（(cx,cy) 基準・rot 回転）を Z 方向へ押し出すときの写像 */
+const onXY=(cx=0,cy=0,rot=0)=>{
+  const c=Math.cos(rot), s=Math.sin(rot);
+  return (u,v,h)=>V(cx+u*c-v*s, cy+u*s+v*c, h);
+};
+/** 半径の違う2円を接線でつないだ角丸の輪郭（クランクアーム・ケージ板・リンク） */
+function capsule(x0,y0,r0,x1,y1,r1,seg=7){
+  const d=Math.hypot(x1-x0,y1-y0), a=Math.atan2(y1-y0,x1-x0);
+  const phi=Math.acos(clamp((r0-r1)/d,-1,1)), out=[];
+  for(let i=0;i<=seg;i++){ const t=a-phi+2*phi*i/seg; out.push([x1+Math.cos(t)*r1, y1+Math.sin(t)*r1]); }
+  for(let i=0;i<=seg*2;i++){ const t=a+phi+(2*Math.PI-2*phi)*i/(seg*2); out.push([x0+Math.cos(t)*r0, y0+Math.sin(t)*r0]); }
+  return out;
+}
+/** 歯車の輪郭。rp＝ピッチ円半径、歯は台形（1歯3点） */
+function gearPoly(teeth,rp,depth=4.2,phase=0){
+  const out=[], s=Math.PI*2/teeth;
+  for(let i=0;i<teeth;i++){
+    const t=phase+i*s;
+    out.push([Math.cos(t)*(rp-depth), Math.sin(t)*(rp-depth)]);
+    out.push([Math.cos(t+s*.38)*(rp+depth*.55), Math.sin(t+s*.38)*(rp+depth*.55)]);
+    out.push([Math.cos(t+s*.62)*(rp+depth*.55), Math.sin(t+s*.62)*(rp+depth*.55)]);
+  }
+  return out;
+}
+/** 円周上に切り欠き（工具の掛かり）を入れた輪郭：BBカップ・ロックリング */
+function notchPoly(r,notches,depth,seg=4){
+  const out=[], s=Math.PI*2/notches;
+  for(let i=0;i<notches;i++){
+    const t=i*s;
+    for(let k=0;k<=seg;k++){ const a=t+s*0.72*k/seg; out.push([Math.cos(a)*r, Math.sin(a)*r]); }
+    out.push([Math.cos(t+s*.78)*(r-depth), Math.sin(t+s*.78)*(r-depth)]);
+    out.push([Math.cos(t+s*.94)*(r-depth), Math.sin(t+s*.94)*(r-depth)]);
+  }
+  return out;
+}
+const pitchR=n=>12.7/(2*Math.sin(Math.PI/n));   // チェーンピッチ 1/2" の歯車のピッチ円半径
+/**
+ * チェーンの閉ループ。circles=[{x,y,r,o}]（o：+1＝反時計回り／-1＝時計回りに巻く、+Z 側から見て）
+ * を順に巻き掛け、隣どうしを接線でつないだ点列を返す
+ */
+function beltLoop(circles,step=4){
+  const n=circles.length, seg=[];
+  for(let i=0;i<n;i++){
+    const A=circles[i], B=circles[(i+1)%n];
+    const dx=B.x-A.x, dy=B.y-A.y, L=Math.hypot(dx,dy), ux=dx/L, uy=dy/L;
+    const k=(B.o*B.r-A.o*A.r)/L, q=Math.sqrt(Math.max(0,1-k*k));
+    let best=null;
+    for(const sg of [1,-1]){
+      const mx=k*ux+sg*q*(-uy), my=k*uy+sg*q*ux;            // 接線の法線
+      const p1=[A.x-A.o*A.r*mx, A.y-A.o*A.r*my], p2=[B.x-B.o*B.r*mx, B.y-B.o*B.r*my];
+      const tx=my, ty=-mx;                                    // 進行方向
+      if((p2[0]-p1[0])*tx+(p2[1]-p1[1])*ty>0) best=[p1,p2];
+    }
+    seg.push(best);
+  }
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const C=circles[(i+1)%n], enter=seg[i][1], exit=seg[(i+1)%n][0];
+    pts.push(seg[i][0]);
+    let a0=Math.atan2(enter[1]-C.y,enter[0]-C.x), a1=Math.atan2(exit[1]-C.y,exit[0]-C.x);
+    if(C.o>0){ while(a1<a0) a1+=Math.PI*2; } else { while(a1>a0) a1-=Math.PI*2; }
+    const m=Math.max(1,Math.ceil(Math.abs(a1-a0)*C.r/step));
+    for(let j=0;j<=m;j++){ const a=a0+(a1-a0)*j/m; pts.push([C.x+Math.cos(a)*C.r, C.y+Math.sin(a)*C.r]); }
+  }
+  return pts;
+}
+/** 点列（閉ループ）を一定間隔で打ち直す */
+function resampleLoop(pts,pitch){
+  const P=pts.concat([pts[0]]), out=[];
+  let carry=0;
+  for(let i=0;i<P.length-1;i++){
+    const a=P[i], b=P[i+1], L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    let t=carry;
+    while(t<L){ out.push([a[0]+(b[0]-a[0])*t/L, a[1]+(b[1]-a[1])*t/L]); t+=pitch; }
+    carry=t-L;
+  }
+  return out;
+}
 
 /* ============================================================
    2. 車体ジオメトリ（size 54 参考値・単位 mm）
@@ -688,7 +808,9 @@ const COL={
   frame:'#5a626b', frameDark:'#464d55', black:'#59636f', dark:'#646f7b',
   silver:'#b9c1ca', steel:'#c2c9d1', tire:'#c0a074', tread:'#41474e', rim:'#565e67',
   rack:'#4d545c', wire:'#f0c419', batt:'#22c1a8', junc:'#4cb7ee', hose:'#4a525b',
-  alert:'#e8402a'                 // 故障・要交換の部位（BBトルクセンサー）
+  // BBトルクセンサー（HYENA 57T031）：アルミ地の本体＋黒アルマイトのカップ
+  sensor:'#a9b2bc', sensorCup:'#5b636c', sensorCable:'#58616b', connector:'#7f8994',
+  ring:'#59616b', pulley:'#4f5761', chainOut:'#c9d0d8', chainIn:'#8d97a2'
 };
 
 /* --- コックピット基準 --- */
@@ -739,36 +861,192 @@ function addWheel(out,center,isRear){
   const ax=V(0,0,1);
   const grp=isRear?'wheelR':'wheelF';
   // タンサイドウォール＋黒トレッド
-  const t=mesh(grp,COL.tire); torus(t,center,ax,R_TIRE-16,16,28,7); out.push(t);
-  const tr=mesh(grp,COL.tread); rimBand(tr,center,ax,R_TIRE,R_TIRE-9,30,30); out.push(tr);
+  const t=mesh(grp,COL.tire); torus(t,center,ax,R_TIRE-16,16,32,7); out.push(t);
+  const tr=mesh(grp,COL.tread); rimBand(tr,center,ax,R_TIRE,R_TIRE-9,30,32); out.push(tr);
   // リム：前輪はカーボンディープ（約50mm）、後輪はハブモーター組みの低リム
   const depth=isRear?26:50;
-  const r=mesh(grp,COL.rim); rimBand(r,center,ax,GEO.rim/2-4,GEO.rim/2-4-depth,24,30); out.push(r);
-  // スポーク
-  const sp=mesh(isRear?'wheelR':'wheelF',COL.silver);
-  const hubR=isRear?62:26, hubW=isRear?52:38;
-  for(let i=0;i<18;i++){
-    const a=i/18*Math.PI*2, side=(i%2?1:-1);
-    const hub=V(center.x+Math.cos(a)*hubR*0.75, center.y+Math.sin(a)*hubR*0.75, center.z+side*hubW);
-    const b=i/18*Math.PI*2+0.32;
-    const rim=V(center.x+Math.cos(b)*(GEO.rim/2-24), center.y+Math.sin(b)*(GEO.rim/2-24), center.z);
+  const r=mesh(grp,COL.rim); rimBand(r,center,ax,GEO.rim/2-4,GEO.rim/2-4-depth,24,32); out.push(r);
+  // スポーク（前 24本ラジアル寄り／後 28本 2クロス相当）。リム内周の穴位置に向けて張る
+  const sp=mesh(grp,COL.silver);
+  const N=isRear?28:24, hubR=isRear?56:22, hubW=isRear?50:36, rimIn=GEO.rim/2-4-depth;
+  for(let i=0;i<N;i++){
+    const a=i/N*Math.PI*2, side=(i%2?1:-1), cross=isRear?(i%4<2?1:-1)*0.42:0.10*side;
+    const hub=V(center.x+Math.cos(a)*hubR, center.y+Math.sin(a)*hubR, center.z+side*hubW);
+    const rim=V(center.x+Math.cos(a+cross)*rimIn, center.y+Math.sin(a+cross)*rimIn, center.z+side*3);
     const i0=sp.v.length; sp.v.push(hub,rim); sp.lines.push([i0,i0+1]);
   }
   out.push(sp);
+  // バルブ
+  const vl=mesh(grp,COL.silver);
+  tube(vl,V(center.x,center.y+rimIn,0),V(center.x,center.y+rimIn-34,0),3.2,3.2,6); out.push(vl);
   // ハブ / モーター
   const h=mesh(isRear?'motor':'wheelF', isRear?COL.dark:COL.steel);
-  if(isRear){ tube(h,V(center.x,center.y,-55),V(center.x,center.y,55),62,62,16);
-              tube(h,V(center.x,center.y,55),V(center.x,center.y,64),40,26,12); }
-  else{ tube(h,V(center.x,center.y,-50),V(center.x,center.y,50),25,25,12); }
+  if(isRear){ tube(h,V(center.x,center.y,-50),V(center.x,center.y,50),62,62,22);
+              tube(h,V(center.x,center.y,50),V(center.x,center.y,56),62,48,22);     // 面取り
+              tube(h,V(center.x,center.y,-56),V(center.x,center.y,-50),48,62,22);
+              tube(h,V(center.x,center.y,56),V(center.x,center.y,64),40,26,12); }
+  else{ tube(h,V(center.x,center.y,-60),V(center.x,center.y,46),14,14,12);
+        for(const z of [-40,40]) tube(h,V(center.x,center.y,z-3),V(center.x,center.y,z+3),26,26,14); }  // フランジ
   out.push(h);
+  if(isRear){                     // モーターのフランジ（スポーク穴の縁）
+    const fl=mesh('motor',COL.steel);
+    for(const z of [-50,50]) rimBand(fl,V(center.x,center.y,z),V(0,0,1),64,56,3,22);
+    out.push(fl);
+  }
   // スルーアクスル
   const axm=mesh(isRear?'motor':'wheelF',COL.black);
   tube(axm,V(center.x,center.y,-75),V(center.x,center.y,75),7,7,8); out.push(axm);
   // ローター（左側）
+  // センターロックローター（外周の制動面＋6本スパイダー＋ロックリング）
   const ro=mesh(isRear?'rotorR':'rotorF',COL.silver);
-  rimBand(ro,V(center.x,center.y,-58),V(0,0,1),80,44,3,24);
-  disc(ro,V(center.x,center.y,-58),V(0,0,1),46,16); out.push(ro);
+  rimBand(ro,V(center.x,center.y,-58),V(0,0,1),80,66,1.8,28);
+  const rc=mesh(isRear?'rotorR':'rotorF',COL.dark);
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2, b=a+0.5;
+    prism(rc,capsule(Math.cos(a)*18,Math.sin(a)*18,7,Math.cos(b)*68,Math.sin(b)*68,5,3),-59,-57,onXY(center.x,center.y));
+  }
+  tube(rc,V(center.x,center.y,-60),V(center.x,center.y,-56),27,27,16);
+  tube(rc,V(center.x,center.y,-63),V(center.x,center.y,-59),20,20,12);
+  out.push(ro,rc);
 }
+/* --- 駆動系の寸法（模式） ---
+   チェーンリングは歯数未確定のため 40T で描画。チェーンは 32T に掛けた状態 */
+const RING_T=40, RING_Z=52;
+const COGS=[46,37,32,28,24,21,19,17,15,13,11];           // ZTTO 11-46T（内側＝大きい歯から）
+const cogZ=i=>44+i*3.95;
+const CHAIN_COG=2;                                        // 32T（チェーンライン≒リング位置）
+const PULLEY_T=11;
+const RD_G=P(REAR.x-50,REAR.y-104), RD_T=P(REAR.x-44,REAR.y-182);   // ガイド／テンションプーリー中心
+const RD_B=P(REAR.x-6,REAR.y-60), RD_M=P(REAR.x-40,REAR.y-72), RD_K=P(REAR.x-60,REAR.y-86);
+const CHAIN_Z=53;
+
+/** BBトルクセンサー（HYENA 57T031）＝BB ユニットを兼ねる。
+    本体はシェル内、左右のカップはシェル外、スピンドルにクランクが付く */
+function buildTorqueSensor(out){
+  const body=mesh('tsensor',COL.sensor);
+  tube(body,P(0,0,-33),P(0,0,33),20,20,20);                     // 本体（ひずみゲージ部を内蔵）
+  tube(body,P(0,0,-12),P(0,0,12),21.2,21.2,20,false);           // 検出部の帯
+  out.push(body);
+  const cup=mesh('tsensor',COL.sensorCup);
+  for(const sg of [1,-1]){
+    prism(cup,notchPoly(28,12,2.6,2),sg*35,sg*40,onXY());          // カップのフランジ（工具の掛かり）
+    tube(cup,P(0,0,sg*40),P(0,0,sg*44),17,15,18);                  // シール
+  }
+  out.push(cup);
+  const sp=mesh('tsensor',COL.steel);
+  tube(sp,P(0,0,-60),P(0,0,60),11,11,16);                        // スピンドル
+  out.push(sp);
+  // 信号ケーブル：シェル上面の穴からフレーム内へ。先端に防水コネクタ
+  const cb=mesh('tsensor',COL.sensorCable);
+  const route=smooth([P(-2,19,-16),P(-4,30,-17),P(-10,62,-20),P(-18,100,-20),P(-22,118,-18)],3);
+  polyTube(cb,route,3.4,6);
+  out.push(cb);
+  const cn=mesh('tsensor',COL.connector);
+  tube(cn,P(-22,118,-18),P(-26,140,-18),6.5,6.5,10);
+  tube(cn,P(-26,140,-18),P(-28,150,-18),5,4,10);
+  out.push(cn);
+}
+/** サドル：上から見た輪郭を押し出し、下にレールを付ける */
+function buildSaddle(out){
+  const half=[[132,0],[124,9],[84,14],[30,22],[-20,44],[-70,62],[-108,68],[-126,56],[-134,26]];
+  const poly=half.concat(half.slice(1).reverse().map(([u,v])=>[u,-v]));
+  const map=(u,v,h)=>V(ST_TOP.x-46+u, h+ (u>60?-(u-60)*0.12:0), v);
+  const top=mesh('seat',COL.black); prism(top,poly,ST_TOP.y+132,ST_TOP.y+146,map); out.push(top);
+  const base=mesh('seat',COL.frameDark);
+  prism(base,poly.map(([u,v])=>[u*0.96,v*0.9]),ST_TOP.y+127,ST_TOP.y+132,map); out.push(base);
+  const rail=mesh('seat',COL.silver);
+  for(const z of [-18,18]) polyTube(rail,smooth([P(ST_TOP.x+68,ST_TOP.y+128,z*0.4),P(ST_TOP.x+20,ST_TOP.y+120,z),
+    P(ST_TOP.x-80,ST_TOP.y+120,z),P(ST_TOP.x-128,ST_TOP.y+128,z*1.8)],3),3.5,6);
+  out.push(rail);
+}
+/** 油圧キャリパー（フラットマウント相当）：ローター外周をまたぐ2つ割りのボディ */
+function caliper(group,center,ang){
+  const m=mesh(group,COL.dark), R=73;
+  const cx=center.x+Math.cos(ang)*R, cy=center.y+Math.sin(ang)*R, t=ang+Math.PI/2;
+  const outline=capsule(-26,0,15,26,0,15,5);
+  prism(m,outline,-72,-61,onXY(cx,cy,t));                      // 外側ボディ
+  prism(m,outline,-55,-47,onXY(cx,cy,t));                      // 内側ボディ（フレーム側）
+  prism(m,capsule(-24,8,8,24,8,8,4),-61,-55,onXY(cx,cy,t));    // ブリッジ（ローターの外側）
+  tube(m,P(cx+Math.cos(ang)*4,cy+Math.sin(ang)*4,-78),P(cx+Math.cos(ang)*4,cy+Math.sin(ang)*4,-72),9,9,10);  // ピストンキャップ
+  return m;
+}
+/** クランク・チェーンリング・カセット・RD・チェーン */
+function buildDrivetrain(out){
+  /* クランク（右：チェーンリング側／左）。アームは角丸の押し出し */
+  const cr=mesh('crank',COL.dark);
+  prism(cr,capsule(0,0,22,-160,-58,12.5,8),60,72,onXY());
+  prism(cr,capsule(0,0,22,160,58,12.5,8),-72,-60,onXY());
+  for(let i=0;i<4;i++){                                        // スパイダー
+    const a=Math.PI/4+i*Math.PI/2;
+    prism(cr,capsule(0,0,13,Math.cos(a)*55,Math.sin(a)*55,7,4),54,60,onXY());
+  }
+  tube(cr,P(0,0,72),P(0,0,76),16,14,16);                       // 右キャップ
+  tube(cr,P(0,0,-76),P(0,0,-72),14,16,16);                     // 左クランクボルト
+  out.push(cr);
+  const pd=mesh('crank',COL.steel);
+  for(const [x,y,z] of [[-160,-58,72],[160,58,-72]]) tube(pd,P(x,y,z),P(x,y,z+(z>0?3:-3)),8,8,10);   // ペダル穴
+  out.push(pd);
+  const ring=mesh('crank',COL.ring);                           // ナローワイド・チェーンリング
+  prism(ring,gearPoly(RING_T,pitchR(RING_T),3.6),RING_Z-2,RING_Z+2,onXY());
+  out.push(ring);
+  const rb=mesh('crank',COL.steel);
+  for(let i=0;i<4;i++){ const a=Math.PI/4+i*Math.PI/2;
+    tube(rb,P(Math.cos(a)*55,Math.sin(a)*55,RING_Z+2),P(Math.cos(a)*55,Math.sin(a)*55,RING_Z+5),4,4,8); }
+  out.push(rb);
+
+  /* カセット ZTTO 11-46T：11枚すべてを歯付きで */
+  const cas=mesh('cassette',COL.silver);
+  COGS.forEach((t,i)=>{
+    const z=cogZ(i);
+    prism(cas,gearPoly(t,pitchR(t),3.2,i*0.37),z-0.9,z+0.9,onXY(REAR.x,REAR.y));
+  });
+  out.push(cas);
+  const casC=mesh('cassette',COL.dark);
+  tube(casC,P(REAR.x,REAR.y,42),P(REAR.x,REAR.y,86),18,18,14);                 // フリーボディ／スペーサー
+  prism(casC,notchPoly(19,12,2.2,2),86,89,onXY(REAR.x,REAR.y));                  // ロックリング
+  out.push(casC);
+
+  /* リアディレイラー RD-M8050-GS */
+  const rd=mesh('rd',COL.dark);
+  tube(rd,P(RD_B.x,RD_B.y,62),P(RD_B.x,RD_B.y,80),11,11,14);                     // Bナックル（取付ボルト）
+  prism(rd,capsule(0,0,17,RD_M.x-RD_B.x,RD_M.y-RD_B.y,15,6),70,92,onXY(RD_B.x,RD_B.y));   // 本体（モーターユニット）
+  prism(rd,capsule(0,0,6,RD_K.x-RD_M.x,RD_K.y-RD_M.y,6,4),60,66,onXY(RD_M.x,RD_M.y));     // リンク（内）
+  prism(rd,capsule(0,0,6,RD_K.x-RD_M.x,RD_K.y-RD_M.y,6,4),74,80,onXY(RD_M.x,RD_M.y));     // リンク（外）
+  tube(rd,P(RD_K.x,RD_K.y,56),P(RD_K.x,RD_K.y,82),10,10,14);                     // Pナックル
+  out.push(rd);
+  const cage=mesh('rd',COL.black);
+  prism(cage,capsule(RD_G.x,RD_G.y,27,RD_T.x,RD_T.y,27,7),61,63.5,onXY());      // 外側プレート
+  prism(cage,capsule(RD_K.x,RD_K.y,14,RD_G.x,RD_G.y,16,4),61,63.5,onXY());
+  prism(cage,capsule(RD_G.x,RD_G.y,24,RD_T.x,RD_T.y,24,7),44.5,46.5,onXY());    // 内側プレート
+  out.push(cage);
+  const pl=mesh('rd',COL.pulley);
+  for(const c of [RD_G,RD_T]) prism(pl,gearPoly(PULLEY_T,pitchR(PULLEY_T),2.8),50.5,56.5,onXY(c.x,c.y));
+  out.push(pl);
+  const pc=mesh('rd',COL.silver);
+  for(const c of [RD_G,RD_T]) tube(pc,P(c.x,c.y,44),P(c.x,c.y,64),6,6,10);
+  out.push(pc);
+  prism(pc,[[0,0],[6,0],[6,26],[0,26]],92,93,onXY(RD_B.x-20,RD_B.y-18,-0.3));  // 本体のロゴ面
+
+  /* チェーン KMC X11：リング → 32T → ガイド → テンションの順に巻き掛け、1リンクずつ置く */
+  const loop=beltLoop([
+    {x:0,y:0,r:pitchR(RING_T),o:1},
+    {x:REAR.x,y:REAR.y,r:pitchR(COGS[CHAIN_COG]),o:1},
+    {x:RD_G.x,y:RD_G.y,r:pitchR(PULLEY_T),o:-1},
+    {x:RD_T.x,y:RD_T.y,r:pitchR(PULLEY_T),o:1}]);
+  const pins=resampleLoop(loop,12.7);
+  const chO=mesh('chain',COL.chainOut), chI=mesh('chain',COL.chainIn);
+  for(let i=0;i<pins.length;i++){
+    const a=pins[i], b=pins[(i+1)%pins.length];
+    const rot=Math.atan2(b[1]-a[1],b[0]-a[0]);
+    const m=i%2?chI:chO;
+    if(i%2) box(m,P((a[0]+b[0])/2,(a[1]+b[1])/2,CHAIN_Z),15.2,6.8,5.4,rot);
+    else    box(m,P((a[0]+b[0])/2,(a[1]+b[1])/2,CHAIN_Z),17.2,7.6,7.6,rot);
+    m.f.splice(m.f.length-4,2);             // 前後の端面は隣のリンクに隠れるので省く
+  }
+  out.push(chI,chO);
+  CHAIN_LINKS=pins.length;
+}
+let CHAIN_LINKS=0;
 function buildBike(){
   const out=[];
   /* --- ホイール --- */
@@ -778,21 +1056,22 @@ function buildBike(){
   /* --- フレーム --- */
   const f=mesh('frame',COL.frame);
   const stTopIn=P(ST_TOP.x+4,ST_TOP.y-6);
-  tube(f,P(BB.x,BB.y+8),stTopIn,20,17,10);                                   // シートチューブ
-  tube(f,P(HT_TOP.x-6,HT_TOP.y-14),P(ST_TOP.x+2,ST_TOP.y-24),19,17,10);      // トップチューブ
-  tube(f,P(HT_BOT.x-16,HT_BOT.y-6),P(BB.x+16,BB.y+4),27,25,10);              // ダウンチューブ（大径=バッテリー内蔵）
-  tube(f,P(HT_TOP.x,HT_TOP.y),P(HT_BOT.x,HT_BOT.y),24,26,12);                // ヘッドチューブ
-  tube(f,P(BB.x,BB.y),P(BB.x,BB.y,0),0,0,3);
-  const bb=mesh('frame',COL.frameDark); tube(bb,P(0,0,-42),P(0,0,42),25,25,12); out.push(bb);
-  /* BBトルクセンサー（HYENA 57T031）＝BBユニットを兼ねる。実車は故障のため取り外し済み */
-  const ts=mesh('tsensor',COL.alert);
-  tube(ts,P(0,0,-52),P(0,0,52),21,21,12);                       // センサー本体（シェル内）
-  polyTube(ts,smooth([P(0,22,-26),P(-10,64,-30),P(-24,132,-26)],3),4,4);   // 信号ケーブル
-  out.push(ts);
+  tube(f,P(BB.x,BB.y+8),stTopIn,20,17,16);                                   // シートチューブ
+  tube(f,P(HT_TOP.x-6,HT_TOP.y-14),P(ST_TOP.x+2,ST_TOP.y-24),19,17,16);      // トップチューブ
+  tube(f,P(HT_BOT.x-16,HT_BOT.y-6),P(BB.x+16,BB.y+4),27,25,16);              // ダウンチューブ（大径=バッテリー内蔵）
+  tube(f,P(HT_TOP.x,HT_TOP.y),P(HT_BOT.x,HT_BOT.y),24,26,16);                // ヘッドチューブ
+  // ヘッドセットの上下ワン
+  const hs=mesh('frame',COL.frameDark);
+  tube(hs,P(HT_TOP.x,HT_TOP.y),P(HT_TOP.x-1,HT_TOP.y+6),25,23,16);
+  tube(hs,P(HT_BOT.x,HT_BOT.y),P(HT_BOT.x+2,HT_BOT.y-6),27,25,16);
+  out.push(hs);
+  // BBシェル（幅68mm想定）。センサーはこの中に収まる
+  const bb=mesh('frame',COL.frameDark); tube(bb,P(0,0,-35),P(0,0,35),25,25,20); out.push(bb);
+  buildTorqueSensor(out);
   // チェーンステー / シートステー（左右）
   const cs=mesh('frame',COL.frame);
-  tube(cs,P(6,6,36),P(REAR.x+16,REAR.y-4,66),15,10,8);
-  tube(cs,P(ST_TOP.x+2,ST_TOP.y-32,14),P(REAR.x+14,REAR.y+6,62),13,9,8);
+  tube(cs,P(6,6,30),P(REAR.x+16,REAR.y-4,66),15,10,12);
+  tube(cs,P(ST_TOP.x+2,ST_TOP.y-32,14),P(REAR.x+14,REAR.y+6,62),13,9,12);
   out.push(f,cs,mirrorZ(cs));
   // ドロップアウト・ハンガー
   const dr=mesh('frame',COL.dark);
@@ -822,46 +1101,13 @@ function buildBike(){
 
   /* --- シートポスト / サドル --- */
   const sp=mesh('seat',COL.black);
-  tube(sp,P(ST_TOP.x,ST_TOP.y-10),P(ST_TOP.x-34,ST_TOP.y+120),15,15,14);
+  tube(sp,P(ST_TOP.x,ST_TOP.y-10),P(ST_TOP.x-34,ST_TOP.y+118),13.6,13.6,16);
+  box(sp,P(ST_TOP.x-35,ST_TOP.y+122),44,12,30);                               // ヤグラ
   out.push(sp);
-  const sd=mesh('seat',COL.black);
-  box(sd,P(ST_TOP.x-46,ST_TOP.y+136),250,22,60,-0.06); out.push(sd);
+  buildSaddle(out);
 
-  /* --- クランク / チェーンリング --- */
-  const cr=mesh('crank',COL.dark);
-  tube(cr,P(0,0,48),P(0,0,62),12,12,8);
-  box(cr,P(-84,-30,66),175,30,12,0.34);       // 右クランクアーム（前上がり）
-  box(cr,P(84,30,-66),175,30,12,0.34);
-  tube(cr,P(-160,-58,72),P(-160,-58,140),9,9,8);
-  out.push(cr);
-  const ring=mesh('crank',COL.silver);
-  rimBand(ring,P(0,0,52),V(0,0,1),81,60,4,30); disc(ring,P(0,0,52),V(0,0,1),62,20); out.push(ring);
-
-  /* --- カセット 11-46T --- */
-  const cas=mesh('cassette',COL.silver);
-  const cogs=[[46,93,44],[37,75,52],[30,61,59],[24,49,66],[19,39,73],[15,31,79],[11,22,86]];
-  for(const[,r,z]of cogs) rimBand(cas,P(REAR.x,REAR.y,z),V(0,0,1),r,r-11,3.2,14);
-  tube(cas,P(REAR.x,REAR.y,42),P(REAR.x,REAR.y,90),20,20,12); out.push(cas);
-
-  /* --- リアディレイラー RD-M8050-GS --- */
-  const rd=mesh('rd',COL.dark);
-  tube(rd,P(REAR.x-4,REAR.y-40,60),P(REAR.x-4,REAR.y-40,74),8,8,8);       // 取付ボルト
-  box(rd,P(REAR.x-26,REAR.y-66,66),84,52,34,-0.5);                        // 本体（モーターユニット）
-  box(rd,P(REAR.x-52,REAR.y-124,58),16,74,10,0.16);                       // ケージ
-  out.push(rd);
-  const pl=mesh('rd',COL.silver);
-  rimBand(pl,P(REAR.x-46,REAR.y-96,54),V(0,0,1),21,10,6,14);
-  rimBand(pl,P(REAR.x-58,REAR.y-158,54),V(0,0,1),21,10,6,14); out.push(pl);
-
-  /* --- チェーン --- */
-  const ch=mesh('chain',COL.steel);
-  polyTube(ch,smooth([P(60,74,52),P(-180,86,52),P(REAR.x+40,REAR.y+86,50),
-                      P(REAR.x-10,REAR.y+92,48)],3),4.5,4);                // 上側（46T）
-  polyTube(ch,smooth([P(REAR.x-46,REAR.y-118,54),P(REAR.x-56,REAR.y-176,54),
-                      P(-240,-70,52),P(20,-70,52),P(66,-46,52)],3),4.5,4); // 下側
-  polyTube(ch,smooth([P(REAR.x-10,REAR.y+92,48),P(REAR.x-56,REAR.y+30,50),
-                      P(REAR.x-62,REAR.y-74,54),P(REAR.x-46,REAR.y-118,54)],3),4.5,4);
-  out.push(ch);
+  /* --- クランク / チェーンリング／カセット／RD／チェーン --- */
+  buildDrivetrain(out);
 
   /* --- ハンドル / ステム --- */
   const stem=mesh('cockpit',COL.black);
@@ -885,10 +1131,8 @@ function buildBike(){
   }
 
   /* --- ブレーキキャリパー（105 油圧）--- */
-  const cf=mesh('brakeF',COL.dark);
-  box(cf,P(FRONT.x-44,FRONT.y+66,-58),46,74,26,0.5); out.push(cf);
-  const cr2=mesh('brakeR',COL.dark);
-  box(cr2,P(REAR.x+64,REAR.y+38,-58),44,70,26,-0.35); out.push(cr2);
+  out.push(caliper('brakeF',FRONT,Math.atan2(66,-44)));
+  out.push(caliper('brakeR',REAR,Math.atan2(38,64)));
   // ホース
   const ho=mesh('hose',COL.hose);
   polyTube(ho,smooth([P(BARC.x+150,BARC.y+18,-BAR_HALF+8),P(BARC.x+40,BARC.y+16,-150),
@@ -904,11 +1148,11 @@ function buildBike(){
   MESHES=out;
   ANCHORS={
     leverL:POS.leverL, leverR:POS.leverR, rs910:BAREND_R, rs910dt:POS.rs910_dt,
-    jc41:jc41Pos(), batt:battPos(), wu111:wuPos(), rd:P(REAR.x-26,REAR.y-66,66),
+    jc41:jc41Pos(), batt:battPos(), wu111:wuPos(), rd:P(REAR.x-30,REAR.y-72,82),
     cassette:P(REAR.x,REAR.y+60,60), motor:P(REAR.x,REAR.y,0), chain:P(-200,80,52),
-    cockpit:P(BARC.x,BARC.y,0), frame:P(200,300,0), crank:P(0,-40,60),
+    cockpit:P(BARC.x,BARC.y,0), frame:P(200,300,0), crank:P(-60,-40,66),
     brakeF:P(FRONT.x-44,FRONT.y+66,-58), brakeR:P(REAR.x+64,REAR.y+38,-58),
-    headtop:P(HT_TOP.x,HT_TOP.y+18,0), bb:P(0,0,0), tsensor:P(0,10,0),
+    headtop:P(HT_TOP.x,HT_TOP.y+18,0), bb:P(0,0,0), tsensor:P(0,0,-44),
     wheelF:P(FRONT.x+150,FRONT.y+150,0), rack:P(-352,486,0),
     wheelR:P(REAR.x-140,REAR.y-140,0), seat:P(ST_TOP.x-40,ST_TOP.y+140,0), fork:P(FRONT.x-40,FRONT.y+200,0)
   };
@@ -1118,12 +1362,13 @@ function collect(list,meshes,active){
       let z=0,ok=true;
       for(const i of f){ if(vv[i].z<=1){ok=false;break;} z+=vv[i].z; }
       if(!ok) continue;
-      const a=vv[f[0]],b=vv[f[1]],c=vv[f[2]];
-      let n=vnorm(vcross(vsub(b,a),vsub(c,a)));
-      // 面の中心から見た向き。カメラに背を向けた面は描かない（閉じた形状のみで構成）
-      const cx=(a.x+b.x+c.x)/3, cy=(a.y+b.y+c.y)/3, cz=(a.z+b.z+c.z)/3;
-      if(n.x*cx+n.y*cy+n.z*cz > 0) n=vmul(n,-1);
-      list.push({t:0,m,f,vv,z:z/f.length,n,c:V(cx,cy,cz)});
+      const a=vv[f[0]];
+      // 面の向きはモデル生成時に外向きへ揃えてある（orient）。カメラに背を向けた面は描かない。
+      // ビュー座標は左手系なので、Newell 法の法線は外向きの逆になる
+      const nn=faceNormal(vv,f);
+      if(nn.x*a.x+nn.y*a.y+nn.z*a.z <= 0) continue;
+      const n=vnorm(vmul(nn,-1));
+      list.push({t:0,m,f,vv,z:z/f.length,n});
     }
     for(const l of m.lines){
       const a=vv[l[0]],b=vv[l[1]];
@@ -1132,6 +1377,7 @@ function collect(list,meshes,active){
     }
   }
 }
+const PP=[];   // 投影済み頂点の作業領域（毎面の配列確保を避ける）
 function drawList(list,active){
   list.sort((p,q)=>q.z-p.z);
   for(const it of list){
@@ -1142,13 +1388,22 @@ function drawList(list,active){
       ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
       continue;
     }
-    ctx.beginPath();
-    let first=true;
-    for(const i of it.f){
-      const p=project(it.vv[i]); if(!p){first=true;break;}
-      if(first){ctx.moveTo(p.x,p.y);first=false;} else ctx.lineTo(p.x,p.y);
+    // 投影してから、画面外の面と、ほぼ真横を向いて面積が 0.4px² に満たない面は塗らない
+    // （閉じた形状なので隣の面に隠れる。歯車の歯やチェーンで効く）
+    const f=it.f, n0=f.length;
+    if(PP.length<n0) for(let k=PP.length;k<n0;k++) PP.push(null);
+    let ok=true, x0=1e9,x1=-1e9,y0=1e9,y1=-1e9, area=0;
+    for(let k=0;k<n0;k++){
+      const p=project(it.vv[f[k]]); if(!p){ok=false;break;}
+      PP[k]=p;
+      if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y;
     }
-    if(first) continue;
+    if(!ok||x1<0||y1<0||x0>W||y0>H) continue;
+    for(let k=0,j=n0-1;k<n0;j=k++) area+=(PP[j].x-PP[k].x)*(PP[j].y+PP[k].y);
+    if(area<0.8&&area>-0.8) continue;
+    ctx.beginPath();
+    ctx.moveTo(PP[0].x,PP[0].y);
+    for(let k=1;k<n0;k++) ctx.lineTo(PP[k].x,PP[k].y);
     ctx.closePath();
     if(active){
       const n=it.n;
@@ -1408,32 +1663,30 @@ const PARTS=[
   ['後ホイール','HyDrive ハブモーター組み','wheelR','ZTTO 11-46T 装着済み・センターロックローター'],
   ['キャリア','リアキャリア','rack','実車装着済み'],
   ['アシスト検出','HYENA BBトルクセンサー 57T031','tsensor',
-   'S/N JC1-00572／BBユニットを兼ねる。故障のため取り外し済み（2026-08-13）'],
+   'BBユニットを兼ねる。交換品が到着（2026-09-27）・旧品 S/N JC1-00572 は故障で取り外し済み'],
 ];
-// 実車写真（2026-08-05／2026-08-13 受領）から確認できた現況
-const STATUS_DATE='2026-08-13';
+// 実車写真（2026-08-05／2026-08-13 受領）と、2026-09-27 のセンサー到着連絡から確認できた現況
+const STATUS_DATE='2026-09-27';
+const SENSOR_ARRIVED='2026-09-27';
 const STATUS=[
-  ['ng','BBトルクセンサー（HYENA 57T031／S/N JC1-00572）が故障。取り外し済みで、ケーブル被覆が裂けている（2026-08-13 写真）'],
-  ['ng','同センサーは BB ユニットを兼ねるため、現状ではクランクを取り付けられない（駆動系は組めない）'],
+  ['new','BBトルクセンサー HYENA 57T031 の交換品が到着（2026-09-27）。未取付 → STEP 2 で受入れ確認と取付'],
+  ['done','故障センサー（旧 S/N JC1-00572・ケーブル被覆の裂け）は取り外し済み'],
   ['done','旧コンポーネントの取り外し（フレーム単体の状態）'],
   ['done','リアホイールに ZTTO 11-46T を装着済み（ハブモーター側）。センターロックローターも取付済み'],
   ['done','baracan MISSION 一体型ハンドルをフレームへ仮組み済み。コラムは未カット（ステム上に35〜40mm突き出し）'],
   ['done','リアキャリア装着済み。内装ライナーは通してある'],
   ['done','スターファングルナット圧入工具を入手済み（コラム＝アルミのため使用可）'],
   ['todo','前輪（カーボンディープ／Pirelli タンサイド）のビード上げ'],
-  ['todo','RD 取付／レバー・配線／ジャンクション固定／ブリーディング／E-TUBE の電気設定（＝センサー無しでも進められる範囲）'],
-  ['hold','クランクとチェーンリングの確定（歯数未定）— トルクセンサー入手後'],
-  ['hold','チェーン長決定／変速の位置調整／試走でポジション確定 → コラムカット → バーテープ — トルクセンサー入手後'],
+  ['todo','RD 取付／レバー・配線／ジャンクション固定／ブリーディング'],
+  ['todo','クランクとチェーンリング（歯数未定）→ チェーン長 → E-TUBE の設定と変速調整'],
+  ['todo','試走でポジション確定 → コラムカット → バーテープ → 最終チェック'],
 ];
 /* 現況の表示ラベル： 状態 → [表示名, タグの色] */
-const STATUS_TAG={done:['完了','ok'], todo:['未実施','warn'],
-                  ng:['故障','ng'], hold:['センサー待ち','ng']};
+const STATUS_TAG={done:['完了','ok'], todo:['未実施','warn'], new:['到着','spec']};
 const TODO=[
-  'BBトルクセンサー（HYENA 57T031）の復旧方針 —（A）同型番で交換／（B）ケーブル・コネクタのみ補修／（C）通常BBを仮組みしてアシスト無しで機械側を仕上げる。どれを採るかで残工程の着手時期が決まる',
-  'HYENA 57T031 の入手性と納期 — Trek 販売店経由の取り寄せが基本。型番 57T031／S/N JC1-00572 を控えて問い合わせる',
-  'センサー故障がケーブル側か本体（ひずみゲージ）側か — テスターでの導通確認と、e-bike ディスプレイのエラー表示で切り分ける',
-  '仮BBを入れる場合の規格 — BBシェル幅・ねじ規格と、センサーと同じスピンドル長（チェーンラインが変わると 1× のライン出しをやり直すことになる）',
-  'センサー無し（またはエラー状態）で e-bike システムがどう振る舞うか — アシスト停止のみか、走行自体を止めるか。試走の可否に直結する',
+  '届いた BBトルクセンサーが旧品と同一仕様か — 型番 57T031 に加え、スピンドル形状・長さ、ケーブル長、コネクタ形状を旧品と並べて照合する（STEP 2）',
+  'センサー交換後に e-bike システム側で登録・校正が要るか — 取付後もエラーが消えない場合は Trek 販売店の診断ツールでの確認が必要になることがある',
+  'BBシェルのねじ規格と、センサー本体を入れる側 — 製品表示と旧品取り外し時の写真で確認（逆ねじの有無）',
   'チェーンリング歯数・クランク（既存流用か新規か）— 資料に記載なし。1×11 のチェーンライン確認が必要',
   'EW-RS910 と SM-JC41 の取付位置 — ③700mm／②250mm／⑤600mm が同時に成立する組み合わせを実測で確定させる（配線タブで比較可）',
   'BT-DN110 の収納位置 — e-bike メインバッテリー／モーター配線との干渉、内径クリアランス',
@@ -1450,15 +1703,11 @@ const TODO=[
    st: 'need'＝手配が必要／'check'＝在庫・規格を要確認
    EW-SD50 の不足分は配線タブの算出結果から自動で追記される（renderNeed）      */
 const NEED=[
-  ['need','アシスト','HYENA BBトルクセンサー 57T031','1個',
-   '故障品と同型番。S/N JC1-00572 の刻印を控えて Trek 販売店へ。BBユニット兼用のため、これが無いとクランク以降に着手できない','tsensor'],
-  ['check','アシスト','センサー用ケーブル／防水コネクタ','1式',
-   '（B）補修案を採る場合。断線がケーブル側だけなら結線し直しで復旧できる可能性がある。防水処理まで含めて用意する','tsensor'],
-  ['check','アシスト','仮組み用の通常BB（同規格・同スピンドル長）','1個',
-   '（C）暫定案を採る場合。アシスト無しで機械側（クランク〜チェーン〜変速調整〜試走〜コラムカット）まで進められる。センサーと同じチェーンラインになるものを選ぶ','tsensor'],
+  ['check','アシスト','センサーのケーブル保護材（スパイラルチューブ／結束バンド）','適量',
+   'BBトルクセンサー本体は 2026-09-27 に到着済み。前回はケーブル被覆の裂けで故障したため、フレームの穴やクランクに当たる所を保護して固定する','tsensor'],
   ['need','駆動','ナローワイドチェーンリング','1枚','歯数が未確定。11-46T とハブモーターのアシスト特性から決める。これが決まらないとチェーン長も確定しない','crank'],
   ['check','駆動','クランクセット','1式','既存流用の可否とチェーンラインを実測で判断。流用不可なら新規手配','crank'],
-  ['check','駆動','クランクに合うスピンドル規格の確認','1件','トルクセンサー（＝BB）側のスピンドル形式・長さにクランクが合うか。合わなければクランクごと見直し','tsensor'],
+  ['check','駆動','クランクに合うスピンドル規格の確認','1件','届いたトルクセンサー（＝BB）のスピンドル形式・長さにクランクが合うか。合わなければクランクごと見直し','tsensor'],
   ['need','駆動','チェーンリングボルト（シングル用）','1組','フロントシングル化でボルト長が変わる','crank'],
   ['check','駆動','ディレイラーハンガー（予備）','1個','規格を確認のうえ予備を1つ。曲がりは変速不良に直結','rd'],
   ['check','駆動','ミッシングリンク 11S（予備）','1組','KMC X11 付属分とは別に予備を持っておく','chain'],
@@ -1594,12 +1843,12 @@ const MANUALS=[
   {id:'trek',cat:'車体',n:'Trek Domane+ AL 5',
    doc:'製品ページ（Trek Japan）',
    url:'https://www.trekbikes.com/jp/ja_JP/%E3%83%90%E3%82%A4%E3%82%AF/e-bike/e-road/domane-al-5/p/5270325/',
-   note:'e-bike システム側の取り扱いは Trek／HyDrive の説明書に従う。BBトルクセンサー（HYENA 57T031）などアシスト系の補修部品は一般流通が乏しく、Trek 販売店経由での取り寄せが基本'},
+   note:'e-bike システム側の取り扱いは Trek／HyDrive の説明書に従う。BBトルクセンサー（HYENA 57T031）の登録・診断が必要な場合は Trek 販売店へ'},
 ];
 /* 工程 → 参照すべきマニュアル */
 const STEP_MAN={
   prep:['etube','gn'], wheel:['casg','gn'], crank:['gn','trek'], rd:['m8050','gn'],
-  tsensor:['trek','gn'],
+  tsinstall:['trek','gn'],
   cockpit:['rx815','baracan'], wiring:['r8050','rx815'], junction:['r8050','rbwu'],
   brake:['gadbr','rx815'], chain:['cn','kmc'], etube:['etube','m8050','rbwu'],
   testfit:['gn'], steerer:['baracan','gn'], final:['gn','trek']
@@ -1608,7 +1857,7 @@ const SPEC=[
   ['車体','Trek Domane+ AL 5 ／ size 54'],
   ['駆動','HyDrive リアハブモーター（後輪ハブ内蔵）'],
   ['変速構成','1×11（フロントシングル／リア11速）'],
-  ['アシスト検出','HYENA BBトルクセンサー 57T031（S/N JC1-00572）／BBユニット兼用 ── 故障・交換待ち'],
+  ['アシスト検出','HYENA BBトルクセンサー 57T031／BBユニット兼用 ── 交換品到着（2026-09-27）・STEP 2 で取付'],
   ['フリーボディ','YH-IF30.8（HG 11S 短ボディ・スペーサー不使用）'],
   ['シフト系','ST-RX815 L/R ＋ RD-M8050-GS（最大46T）'],
   ['スプロケット','ZTTO 11-46T'],
@@ -1630,26 +1879,26 @@ const GEOROWS=[
   ['スタック／リーチ','575 / 374 mm'],['タイヤ','700×32C（外径 686 mm 相当）']
 ];
 
-const STEP_IDS=['overview','prep','tsensor','wheel','rd','cockpit','wiring','junction',
-  'brake','etube','crank','chain','testfit','steerer','final'];
-/* 工程の並びは「トルクセンサーが無くても進められる作業」を先に、
-   センサー到着待ちの作業（駆動系・試走・コラムカット）を後ろにまとめている。
-   wait: その工程の work のうち、BBトルクセンサーが無いと着手できない項目の添字。
-         画面ではチェックできない状態で表示され、進捗率の母数からも外れる。       */
+const STEP_IDS=['overview','prep','tsinstall','wheel','rd','cockpit','wiring','junction',
+  'brake','crank','chain','etube','testfit','steerer','final'];
+/* 工程の並び（2026-09-27 BBトルクセンサー到着後）。
+   センサーは BB を兼ねるため、フレームが身軽なうちに STEP 2 で取り付ける。
+   保存キーは「工程ID-項目番号」なので、並べ替えてもチェック済みの項目は引き継がれる。
+   受入れ・取付の工程は内容が別物になったため ID を tsinstall に改めている。 */
 const STEPS=[
- {t:'現況の確認と、今できる作業の切り分け',s:'トルクセンサー故障を織り込んだ全体像',g:['*'],
+ {t:'現況の確認と作業の流れ',s:'BBトルクセンサー到着・全工程に着手可能',g:['*'],
   view:{az:34,el:14,fit:['*']},
-  labels:[['tsensor','故障・取り外し済み'],['cockpit','仮組み済み'],['rd','これから']],
-  goal:'完成形と、BBトルクセンサーが無い状態でどこまで進められるかを把握する。',
+  labels:[['tsensor','新品が到着・STEP 2で取付'],['cockpit','仮組み済み'],['rd','これから']],
+  goal:'完成形と、届いた BBトルクセンサーの取付から走行可能までの流れを把握する。',
   work:['3Dで完成形と各ユニットの位置関係を確認する',
-        'BBトルクセンサーの故障で止まる作業（クランク・チェーン・変速調整・試走・コラムカット）を把握する',
+        '届いた BBトルクセンサーを STEP 2 で取り付け、その後の駆動系（STEP 9〜11）から試走・コラムカットまでの流れを把握する',
         '残り部品の員数を確認する（ST-RX815／RD-M8050-GS／クランクまわり／KMC X11／EW-SD50／各ジャンクション）',
         '配線タブで EW-SD50 の必要長を確認し、不足分を手配する',
         'ワークスタンドと作業スペースを用意する（ハブモーターで後輪が重い）'],
   tools:['ワークスタンド','デジタルカメラ（記録用）'],
-  notes:[['danger','BBトルクセンサーが故障','HYENA 57T031（S/N JC1-00572）が故障し、取り外し済みです。このセンサーは BB ユニットを兼ねるため、無い状態ではクランクが付きません。本手順書は「センサー無しでも進められる作業」を先に並べ替え、センサー待ちの項目には印を付けて進捗率の母数から外しています。'],
-         ['info','いま進められる範囲','STEP 2〜9（センサーの診断と手配／前輪／RD／ハンドル内装／Di2配線／ジャンクション固定／ブレーキのブリーディング／E-TUBE の電気設定）まで。ここまで済ませておけば、センサーが届いてから走行可能まで一気に詰められます。'],
-         ['info','完了済みの作業','リアホイールへのカセット（ZTTO 11-46T）とローター装着、baracan MISSION の仮組み、リアキャリア装着。旧コンポーネントの取り外しも完了しているため、この手順書からは省いています。'],
+  notes:[['info','BBトルクセンサーが到着','故障していた HYENA 57T031（旧 S/N JC1-00572）の交換品が届きました。これで「センサー待ち」だった駆動系・試走・コラムカットを含む全工程に着手できます。工程は組み立ての自然な順（センサー → … → クランク → チェーン → E-TUBE 調整 → 試走 → コラムカット）に戻しています。'],
+         ['info','センサーを先に入れる理由','センサーは BB ユニットを兼ねるため、フレームが軽く、BB まわりに何も付いていない今のうちに入れておくのが確実です。ケーブルもフレーム内の他の配線（Di2・ホース）を通す前に経路を確保できます。'],
+         ['info','完了済みの作業','リアホイールへのカセット（ZTTO 11-46T）とローター装着、baracan MISSION の仮組み、リアキャリア装着。旧コンポーネントと故障センサーの取り外しも完了しているため、この手順書からは省いています。'],
          ['danger','作業前に電源を落とす','e-bike システムの主電源を切り、可能ならメインバッテリーを外してから作業を始めてください。'],
          ['info','3Dは模式図','寸法は Domane AL 系の一般値に基づく参考モデルです。クリアランス判定は必ず実車で行ってください。']]},
 
@@ -1666,27 +1915,31 @@ const STEPS=[
   notes:[['danger','必須','e-bike の主電源を落とさずに配線作業をしない。モーター系と Di2 系は別系統ですが、短絡・誤作動防止のため必ず遮断します。'],
          ['warn','ライナーを抜かない','フレームとハンドルに通っている内装ライナーは絶対に抜かないこと。抜くと経路の作り直しになります。端をテープで固定しておきます。']]},
 
- {t:'BBトルクセンサーの診断と手配',s:'HYENA 57T031（故障・取り外し済み）',g:['tsensor','crank','frame'],
-  view:{az:200,el:16,fit:['tsensor','crank','chain']},   // 非ドライブ側から。チェーンリングでBBが隠れないように
-  labels:[['tsensor','HYENA 57T031（故障）'],['crank','ここが組めない']],
-  goal:'故障の切り分けと復旧方針を決め、部品を手配する。ここが決まるまで駆動系には入れない。',
-  work:['取り外したセンサー本体の表示を控える（HYENA Bottom Bracket Torque Sensor ／ P/N 57T031 ／ S/N JC1-00572 ／ 側面の矢印＝取付の向き）',
-        'ケーブルとコネクタの状態を接写で記録する（被覆の裂け・断線・端子の腐食・浸水痕）',
-        'テスターで導通を確認し、断線がケーブル側か本体（ひずみゲージ）側かを切り分ける',
-        'e-bike システムの電源を入れ、ディスプレイのエラー表示とコードを記録する（記録後は再び電源を落とす）',
-        'センサーのケーブルがフレーム内のどこを通り、どのコネクタに刺さっていたかを写真とメモで残す',
-        'BBシェルの規格（ねじ・シェル幅）とスピンドル形式・長さを実測し、手持ちクランクとの適合を確認する',
-        'BBシェルのねじ山とワン座面を清掃し、傷・かじりがないか確認する',
-        'Trek 販売店経由で HYENA 57T031 の入手可否と納期を確認する',
-        '復旧方針を決める：(A) 同型番で交換／(B) ケーブル・コネクタのみ補修／(C) 通常BBを仮組みしてアシスト無しで機械側を仕上げる',
-        '決めた方針と納期を記録し、センサー待ちの工程（STEP 10〜14）の着手時期を見積もる'],
-  tools:['テスター（導通確認）','BB工具','ノギス','デジタルカメラ（記録用）','パーツクリーナー','ウエス','グリス'],
-  torque:[['BBワン（参考）','35–50 N·m ／ メーカー指定値を優先']],
-  notes:[['danger','このセンサーは BB そのもの','HYENA の BBトルクセンサーは BB ユニットを兼ねています。代わりが入るまでクランクを取り付けられず、チェーン長の決定・変速の位置調整・試走・コラムカットまで芋づる式に止まります。'],
-         ['warn','切り分けの目安','写真ではケーブルの被覆が裂けています。断線がケーブル側だけなら結線のやり直しで復旧できる可能性がありますが、防水シールとひずみゲージ側の健全性までは保証できません。アシスト制御に直結する部品なので、確実を期すなら本体交換です。'],
-         ['warn','部品の入手','HYENA の補修部品は一般流通が乏しく、Trek 販売店経由の取り寄せが基本です。型番とシリアルを控えて問い合わせてください。'],
-         ['info','(C) 仮BB という選択肢','同じねじ規格・同じスピンドル長の通常BBが手に入れば、アシスト無しの状態で機械側（クランク〜チェーン〜変速調整〜スタンド上の確認）まで進められます。ただしアシスト系はエラーを出す前提で、公道での常用は避けてください。スピンドル長が違うとチェーンラインが変わり、1× のライン出しをやり直すことになります。'],
-         ['danger','分解しない','センサー本体を開けると防水と校正が崩れます。導通確認とケーブル側の補修までに留め、内部に手を入れないでください。']]},
+ {t:'BBトルクセンサーの受入れと取付',s:'HYENA 57T031（交換品）をBBシェルへ',g:['tsensor'],
+  view:{az:232,el:24,fit:['tsensor']},   // 非ドライブ側の斜め上から。ケーブルの出口が見える向き
+  labels:[['tsensor','HYENA 57T031（新品）'],['bb','BBシェル'],['crank','クランクは STEP 9']],
+  fig:'tsensor',
+  goal:'届いたセンサーが旧品と同じものかを確かめ、向き・ケーブル経路・締付トルクを守って BB シェルに取り付ける。',
+  work:['開梱して型番（HYENA Bottom Bracket Torque Sensor ／ P/N 57T031）を確認し、新品の S/N とラベルを写真で記録する',
+        '旧品と並べ、スピンドルの形状・長さ、カップの形、ケーブルの長さ・出る位置、コネクタの形状が同じかを照合する',
+        '本体・ケーブル・コネクタに傷や潰れがないか、防水キャップが付いているかを確認する（ここで異常があれば取り付けずに販売店へ）',
+        'BBシェルのねじ山と端面をもう一度清掃し、ねじ山に薄くグリスを塗る',
+        '取付向きを確認する：本体の矢印・刻印と、旧品取り外し時の写真（どちら側から入っていたか・ケーブルがどちらを向いていたか）を突き合わせる',
+        'ケーブル先端（コネクタ）を保護テープで包み、先にシェル上面の穴からフレーム内へ通して、コントローラー側の開口まで引き出す',
+        'ケーブルを手で送りながら本体をシェルへ差し込み、手で回る範囲までねじ込む（ケーブルをねじらない・シェルの縁で挟まない）',
+        '反対側のカップ（ロックリング）を入れ、BB工具で規定トルクまで締める',
+        'センサーのコネクタを車体側のコネクタへ矢印を合わせて奥まで挿し、抜け止め・防水キャップを確認する',
+        'ケーブルの余長を結束して固定する（クランク・チェーンリングの回転部とフレーム内の Di2 配線に触れない位置へ）',
+        'e-bike の電源を入れ、以前出ていたエラー表示が消えていることを確認して、再び電源を落とす（ペダルに足を乗せずに電源を入れる）',
+        '旧品は袋に入れて保管する（販売店から返却・送付の指示があれば従う）'],
+  tools:['BB工具','トルクレンチ','ノギス','グリス','パーツクリーナー','ウエス','養生テープ','デジタルカメラ（記録用）'],
+  torque:[['BBカップ（参考）','35–50 N·m ／ メーカー指定値を優先']],
+  notes:[['danger','このセンサーは BB そのもの','HYENA の BBトルクセンサーは BB ユニットを兼ねています。ここで向き・締付・ケーブル処理を誤ると、クランクを付けてからでは直せません。クランクは STEP 9 で取り付けます。'],
+         ['warn','ケーブルが先','ケーブルを通さずに本体を締め込むと、シェルの縁でケーブルを挟んだり、ねじったまま固定したりします。前回の故障も被覆の裂けでした。必ず先に通し、送りながら入れてください。'],
+         ['warn','ねじの向き','どちら側が逆ねじかは BB の規格で決まります（BSA では右＝ドライブ側が逆ねじ）。製品の表示と取り外し時の記録で確認し、固いと感じたら無理に回さずに向きを疑ってください。'],
+         ['info','電源投入のコツ','トルクセンサーは電源を入れた瞬間を無負荷（ゼロ）として取り込むものが多く、ペダルやクランクに力が掛かっていると踏力の検出がずれる原因になります。電源ONのときはクランクに触れないでください。'],
+         ['info','アシストの確認は後で','クランクが付くまでは踏力の入力がないため、ここで確認できるのはシステムに認識されてエラーが消えることまでです。アシストの立ち上がりは STEP 12（スタンド上）と STEP 14（試走）で確認します。'],
+         ['danger','分解しない','センサー本体を開けると防水と校正が崩れます。内部には手を入れないでください。']]},
 
  {t:'前輪のビード上げとホイール確認',s:'カーボンディープ／チューブレス',g:['wheelF','wheelR','rotorF','rotorR','motor','cassette'],
   view:{az:-18,el:10,fit:['wheelF','wheelR']},
@@ -1783,52 +2036,27 @@ const STEPS=[
   notes:[['danger','オイル管理','ST-RX815・105 キャリパーともシマノ＝ミネラルオイル。DOT 系フルードは絶対に混用しない。パッド・ローターへの付着は制動力喪失に直結します。'],
          ['info','手順','エア溜まりはレバー側に集まります。キャリパー→レバーの順に押し上げるのが基本です。']]},
 
- {t:'E-TUBE PROJECT 設定（電気側）',s:'FW更新・スイッチ割当まで。変速調整はセンサー後',g:['rd','cassette','jc41','rs910','rs910dt','wu111','leverL','leverR'],
-  view:{az:-46,el:10,fit:['rd','cassette']},
-  labels:[['rd','RD の動作確認'],['rs910','充電ポートから接続'],['wu111','ペアリング']],
-  goal:'チェーンを掛けずにできる電気側の設定をすべて済ませる。',
-  work:['EW-RS910 の充電ポート経由で E-TUBE PROJECT に接続する',
-        '全ユニット（レバー／RD／バッテリー／ワイヤレス）が認識されることを確認する',
-        '全ユニットのファームウェアを最新に更新する',
-        'エラー診断を実行し、配線・接続の不良がないことを確認する',
-        '左レバーの空きスイッチに機能を割り当てる（任意）',
-        'マルチシフト（連続変速）速度を好みに設定する',
-        'EW-WU111 とスマートフォンをペアリングする',
-        'チェーンを掛けない状態でレバーを操作し、RD が全ストローク動くことを確認する',
-        'RD のアジャストモードで 0.2mm 単位のギア位置調整を行う（チェーンを掛けて実施）',
-        '1×11 として動作範囲（トップ／ロー位置）を設定する'],
-  wait:[8,9],
-  tools:['PC またはスマートフォン','充電ケーブル SM-BCR2 相当','E-TUBE PROJECT'],
-  notes:[['warn','必ず先にFW更新','異なるシリーズ（GRX × MTB）の混成のため、ファームウェアが古いと認識・動作しない場合があります。'],
-         ['info','ここまでは今できる','ユニットの認識・FW更新・スイッチ割当・ペアリングはチェーンが無くても完了できます。この工程を済ませておけば、センサーが届いたあとに残るのは位置調整だけです。'],
-         ['warn','位置調整は後回し','ギア位置の調整はチェーンが掛かっていないと判断できません。クランク（STEP 10）とチェーン（STEP 11）のあとにこの工程へ戻ってください。'],
-         ['info','調整のコツ','ロー（46T）とトップ（11T）の両端で音鳴りが出ない中央値を探します。両端が両立しない場合は B テンションを再調整します。']]},
-
- {t:'クランクとチェーンリング',s:'センサー到着後に着手／先に測っておく',g:['crank','tsensor','chain','frame'],
+ {t:'クランクとチェーンリング',s:'1× のチェーンラインを出す',g:['crank','tsensor','chain','frame'],
   view:{az:-8,el:8,fit:['crank','tsensor']},
-  labels:[['crank','チェーンリング（歯数要確定）'],['tsensor','ここにセンサーが入る']],
-  goal:'フロントシングルのチェーンラインを出す。センサーが入るまでは机上と単体作業だけ進める。',
+  labels:[['crank','チェーンリング（歯数要確定）'],['tsensor','センサーのスピンドル']],
+  goal:'センサーのスピンドルにクランクを取り付け、フロントシングルのチェーンラインを出す。',
   work:['チェーンリングの歯数を決める（11-46T とアシスト特性、常用ケイデンスから）',
         'ナローワイドチェーンリングをクランク単体に組み付け、規定トルクで締める',
-        '取り外したセンサー現物のスピンドル長を実測し、組んだときのチェーンラインを机上で試算する',
+        '取り付けたセンサーのスピンドル形状・長さとクランクの適合を確認し、組んだときのチェーンラインを試算する',
         'クランクアーム長とキャリアステー・チェーンステーの位置関係を現物合わせで確認する',
-        'BBシェルのねじ山にグリスを塗る',
-        'トルクセンサー（＝BBユニット）を向き（矢印）に合わせてフレームへ取り付け、規定トルクで締める',
-        'センサーのケーブルを元の経路に通し、コントローラー側のコネクタへ確実に接続する',
+        'スピンドルの嵌合面を清掃する（指定があればグリスまたは組付剤を塗る）',
+        'センサーのケーブルがクランクの内側・チェーンリングの裏に出ていないことを確認する',
         'クランクを取り付け、規定トルクで締結する',
         'チェーンラインを実測し、カセットの中央付近に来ることを確認する',
         'クランクアームとチェーンステー、キャリアステーとのクリアランスを実測する',
         'クランクを空転させ、異音・引っかかり・ケーブルの巻き込みがないことを確認する'],
-  wait:[4,5,6,7,8,9,10],
-  tools:['クランク工具','BB工具','トルクレンチ','ノギス','グリス'],
-  torque:[['BBワン（参考）','35–50 N·m ／ メーカー指定値を優先'],['クランクボルト','メーカー指定値'],['チェーンリングボルト','12–16 N·m（参考）']],
-  notes:[['danger','センサーが入るまで組めない','BBの位置にはトルクセンサー（HYENA 57T031）が入ります。代替品が手元に来るまでクランクは取り付けられません。センサー待ちの項目には印を付けています。'],
-         ['info','今できること','歯数の決定、クランク単体へのリング組付け、現物採寸によるチェーンラインの試算は、センサー無しでも進められます。ここまでやっておくと到着後が早いです。'],
-         ['danger','歯数が未確定','資料にチェーンリングの歯数の記載がありません。歯数が決まらないとチェーン長も確定しません。'],
-         ['warn','取付の向き','センサーには回転方向・取付向きを示す矢印があります。逆に入れるとアシストが正しく効きません。取り外し時の写真と照合してください。'],
+  tools:['クランク工具','トルクレンチ','ノギス','グリス'],
+  torque:[['クランクボルト','メーカー指定値'],['チェーンリングボルト','12–16 N·m（参考）']],
+  notes:[['danger','歯数が未確定','資料にチェーンリングの歯数の記載がありません（3D は 40T で描いています）。歯数が決まらないとチェーン長も確定しません。'],
+         ['warn','クランクに無理な力を掛けない','スピンドルはトルクセンサーの検出軸そのものです。圧入・叩き込みはせず、クランク工具で規定トルクまで締めてください。'],
          ['warn','チェーン落ち対策','1× ではチェーン落ちしやすくなります。ナローワイドのリング、必要ならチェーンウォッチャーの併用を検討してください。']]},
 
- {t:'チェーン取付（KMC X11 Aurora）',s:'1×11 のチェーン長決定（センサー到着後）',g:['chain','crank','cassette','rd'],
+ {t:'チェーン取付（KMC X11 Aurora）',s:'1×11 のチェーン長決定',g:['chain','crank','cassette','rd'],
   view:{az:-16,el:10,fit:['chain','crank','cassette','rd']},
   labels:[['chain','KMC X11 Aurora'],['crank','チェーンリング'],['cassette','ロー 46T']],
   goal:'46T ロー時にケージが伸び切らず、トップ側でたるまない長さに決める。',
@@ -1838,34 +2066,50 @@ const STEPS=[
         'トップ側（11T）でケージが過度に前傾せず、チェーンがたるまないことを確認する',
         'ミッシングリンクを進行方向に合わせて結合する',
         '全ギアで手回しし、異音・干渉がないことを確認する',
-        'E-TUBE（STEP 9）に戻り、ギア位置の調整と動作範囲の設定を行う'],
-  wait:[1,2,3,4,5,6],
+        '次の STEP 11（E-TUBE）で、ギア位置の調整と動作範囲の設定を行う'],
   tools:['チェーンカッター','ミッシングリンクプライヤー','チェーンチェッカー'],
-  notes:[['danger','クランクが付いてから','チェーン長はチェーンリングが付いていないと決められません。トルクセンサーとクランク（STEP 10）が終わってから着手してください。切ってしまうとやり直しが効きません。'],
+  notes:[['danger','切る前に確認','チェーンは切ってしまうとやり直しが効きません。ロー・トップの両方でケージの姿勢を確かめてから切断してください。'],
          ['warn','1×の注意','ワイドレシオでは長さの許容幅が狭くなります。長すぎるとトップでたるみ、短すぎるとロー投入時に RD を破損します。'],
          ['info','Aurora','KMC X11 Aurora はカラーコーティング品。ミッシングリンクの向き（進行方向）に注意します。']]},
 
- {t:'仮組みでの試走とポジション確定',s:'コラムを切る前の最終確認（センサー到着後）',g:['*'],
+ {t:'E-TUBE PROJECT 設定と変速調整',s:'FW更新・スイッチ割当・ギア位置調整',g:['rd','cassette','chain','jc41','rs910','rs910dt','wu111','leverL','leverR'],
+  view:{az:-46,el:10,fit:['rd','cassette']},
+  labels:[['rd','RD の位置調整'],['rs910','充電ポートから接続'],['wu111','ペアリング']],
+  goal:'Di2 のユニット設定を済ませ、チェーンを掛けた状態で全段の変速位置を合わせる。',
+  work:['EW-RS910 の充電ポート経由で E-TUBE PROJECT に接続する',
+        '全ユニット（レバー／RD／バッテリー／ワイヤレス）が認識されることを確認する',
+        '全ユニットのファームウェアを最新に更新する',
+        'エラー診断を実行し、配線・接続の不良がないことを確認する',
+        '左レバーの空きスイッチに機能を割り当てる（任意）',
+        'マルチシフト（連続変速）速度を好みに設定する',
+        'EW-WU111 とスマートフォンをペアリングする',
+        'クランクを手で回しながらレバーを操作し、RD が全段に動くことを確認する',
+        'RD のアジャストモードで 0.2mm 単位のギア位置調整を行う（クランクを回しながら）',
+        '1×11 として動作範囲（トップ／ロー位置）を設定する'],
+  tools:['PC またはスマートフォン','充電ケーブル SM-BCR2 相当','E-TUBE PROJECT'],
+  notes:[['warn','必ず先にFW更新','異なるシリーズ（GRX × MTB）の混成のため、ファームウェアが古いと認識・動作しない場合があります。'],
+         ['info','調整のコツ','ロー（46T）とトップ（11T）の両端で音鳴りが出ない中央値を探します。両端が両立しない場合は B テンションを再調整します。'],
+         ['warn','アシストは切っておく','スタンド上でクランクを回すとき、e-bike システムの電源が入っているとモーターが回ることがあります。変速調整中は e-bike 側の電源を切っておきます（Di2 は BT-DN110 で独立して動きます）。']]},
+
+ {t:'仮組みでの試走とポジション確定',s:'コラムを切る前の最終確認',g:['*'],
   view:{az:-30,el:14,fit:['*']},
-  labels:[['cockpit','ハンドル高さを確定'],['rd','全段変速を確認'],['brakeF','制動を確認']],
+  labels:[['cockpit','ハンドル高さを確定'],['rd','全段変速を確認'],['tsensor','アシストの反応']],
   goal:'コラムを切る前に、ハンドル高さと各部のセッティングを確定させる。',
   work:['ここまでに組んだ全ボルトの締結を確認する',
         'ブレーキの引きしろとローターの擦れを確認する',
         'ハンドル切れ角いっぱいで配線・ホースが突っ張らないことを確認する',
         'スタンド上で 11→46T まで全段変速を確認する',
         'ロー（46T）でスポーク・モーターへの干渉がないことを確認する',
-        'e-bike メインバッテリーを戻し、アシストが正常に立ち上がることを確認する',
+        'e-bike メインバッテリーを戻し、スタンド上で軽く踏んでアシストが立ち上がり、止めると切れることを確認する',
         'スペーサー構成を替えながら低速で試走し、ハンドル高さを決める',
         'レバーの角度とリーチを微調整して確定させる',
         '確定したスペーサー構成を写真とメモで記録する'],
-  wait:[3,4,5,6,7,8],
   tools:['トルクレンチ','六角レンチ','保護具'],
   notes:[['danger','ここで確定させる','次の工程でコラムを切ると高さは戻せません。必ず試走で決めてから進んでください。'],
-         ['warn','ペダルを回せる状態が前提','ポジション出しは実際に踏んで決めるものです。トルクセンサー（または仮BB）が入り、駆動系が組み上がるまで着手できません。'],
-         ['info','締結・ブレーキの確認は今できる','すでに組んだ部分のボルトの確認と、ブレーキの引きしろ・ローターの擦れ、ハンドル切れ角の確認は駆動系と無関係に進められます。'],
+         ['danger','スタンド上のアシスト確認','後輪が浮いた状態でアシストが掛かると勢いよく回ります。手や工具を近づけず、ごく軽い踏力で確認してください。踏んでいないのに回る・止めても回り続ける場合は、直ちに電源を切り、センサーの向きと接続を見直します。'],
          ['warn','ハブモーター車','トルクが大きく、変速不良が駆動系の破損に直結します。必ずスタンド上で全段確認してから試走します。']]},
 
- {t:'コラムカットと仕上げ',s:'アルミコラム／スターナット・バーテープ（試走後）',g:['cockpit','fork','frame'],
+ {t:'コラムカットと仕上げ',s:'アルミコラム／スターナット・バーテープ',g:['cockpit','fork','frame'],
   view:{az:48,el:22,fit:['cockpit']},
   labels:[['headtop','ここを切る'],['cockpit','baracan MISSION']],
   goal:'確定した高さでコラムを切り、プリロードを出して仕上げる。',
@@ -1878,32 +2122,30 @@ const STEPS=[
         'トップキャップでプリロードを与えてから、ステムを規定トルクで締める',
         'ヘッドのガタとハンドルの直進性を確認する',
         'ST-RX815 を本締めし、バーテープを巻く'],
-  wait:[1,2,3,4,5,6,7,8],
   tools:['ソーガイド','金切り鋸','ヤスリ','スターファングルナット圧入工具（HOUSON・入手済み）','トルクレンチ','マスキングテープ','バーテープ'],
   torque:[['ステムクランプ','5–6 N·m（メーカー指定優先）'],['バークランプ','6–8 N·m（参考）'],['トップキャップ','プリロード調整のみ・締めすぎない']],
-  notes:[['danger','試走でポジションが決まってから','コラムは一度切ると戻せません。踏んで決める試走（STEP 12）が前提のため、トルクセンサーが入るまでは着手しないでください。工具と材料を揃えるところまでが今できる作業です。'],
+  notes:[['danger','試走でポジションが決まってから','コラムは一度切ると戻せません。STEP 12 の試走で高さを確定させてから着手してください。'],
          ['info','本車はアルミコラム','フォーク＝カーボン、コラム＝アルミ。スターファングルナットが使用できます（購入済みの圧入工具でOK）。一般則として、カーボンコラムにスターナットは使用不可（要エキスパンダー）です。'],
          ['warn','切粉','切断面のバリは必ず取り、切粉がヘッドセット内に残らないよう清掃します。'],
          ['warn','圧入の深さ','浅いとトップキャップのボルトが届かず、深すぎるとプリロードが掛かりません。上端から約15mmが目安（実測で調整）。']]},
 
  {t:'最終チェックと本試走',s:'締結・変速・制動・アシストの確認',g:['*'],
   view:{az:-30,el:14,fit:['*']},
-  labels:[['rd','全ギア確認'],['brakeF','制動確認'],['cockpit','増し締め']],
+  labels:[['rd','全ギア確認'],['brakeF','制動確認'],['tsensor','アシスト確認']],
   goal:'公道に出す前に、締結トルクと全機能を確認する。',
   work:['タイヤの空気圧とエア漏れを確認する',
-        '全ボルトの締結トルクを再確認する',
+        '全ボルトの締結トルクを再確認する（BBカップ・クランクボルトを含む）',
         'スタンド上で全段変速を再確認する',
         'ブレーキの引きしろとローターの擦れを確認する',
         'ハンドル切れ角いっぱいで配線の突っ張りがないことを確認する',
         'e-bike メインバッテリーを戻し、アシスト動作とトルクセンサーの反応を確認する',
         'ディスプレイにエラーが出ていないことを確認する',
         '低速で試走し、変速・制動・異音を確認する',
-        '走行 50–100 km 後に再点検する（初期伸び・増し締め）'],
-  wait:[1,2,3,4,5,6,7,8],
+        '走行 50–100 km 後に再点検する（初期伸び・増し締め・BBまわりのガタ）'],
   tools:['トルクレンチ','空気圧計','保護具'],
   notes:[['danger','試走前','ハブモーター車はトルクが大きく、変速不良が駆動系の破損に直結します。必ずスタンド上で全段確認してから試走してください。'],
          ['danger','アシストの確認は必須','トルクセンサー交換後の初回は、踏力に対してアシストが素直に立ち上がるか、離すと素早く切れるかを人けのない場所で確認してください。取付向きを誤ると挙動が不自然になります。'],
-         ['warn','仮BB（C案）で走らせる場合','アシストは効かず、システムはエラーを表示したままになります。重量のある車体をアシスト無しで走らせることになるため、確認は短距離に留めてください。']]}
+         ['warn','左右で反応が違うとき','左右のペダルでアシストの出方が大きく違う、または信号待ちで勝手に踏み込み判定される場合は、電源の入れ直し（ペダルに触れずに）で改善するか確かめ、改善しなければ販売店に相談してください。']]}
 ];
 
 /* ============================================================
@@ -1919,34 +2161,19 @@ let done={};
 try{done=JSON.parse(localStorage.getItem(KEY)||'{}');}catch(e){done={};}
 const saveDone=()=>{try{localStorage.setItem(KEY,JSON.stringify(done));}catch(e){}};
 
-/* --- トルクセンサー待ちの扱い ---------------------------------------------
-   wait に載っている作業は「部品が来るまで着手できない」ものとして、
-   チェック不可・進捗率の母数外にする。進捗率＝いま実施できる分の消化率。   */
-const isWait=(i,j)=>!!(STEPS[i].wait&&STEPS[i].wait.indexOf(j)>=0);
-/** ''＝待ちなし／'partial'＝一部待ち／'blocked'＝全部待ち */
-function stepHold(i){
-  const s=STEPS[i], n=(s.wait||[]).length;
-  return !n ? '' : (n>=s.work.length ? 'blocked' : 'partial');
-}
 const dkey=(i,j)=>STEPS[i].id+'-'+j;
 function eachItem(fn){STEPS.forEach((s,i)=>s.work.forEach((w,j)=>fn(i,j,w)));}
-function totalItems(){let n=0; eachItem((i,j)=>{if(!isWait(i,j))n++;}); return n;}
-function doneCount(){let n=0; eachItem((i,j)=>{if(!isWait(i,j)&&done[dkey(i,j)])n++;}); return n;}
-function waitTotal(){let n=0; eachItem((i,j)=>{if(isWait(i,j))n++;}); return n;}
-function stepDone(i){
-  const idx=STEPS[i].work.map((_,j)=>j).filter(j=>!isWait(i,j));
-  return idx.length>0 && idx.every(j=>done[dkey(i,j)]);
-}
+function totalItems(){let n=0; eachItem(()=>n++); return n;}
+function doneCount(){let n=0; eachItem((i,j)=>{if(done[dkey(i,j)])n++;}); return n;}
+const stepDone=i=>STEPS[i].work.every((_,j)=>done[dkey(i,j)]);
 
 function renderChips(){
   const c=$('#chips'); c.innerHTML='';
   STEPS.forEach((s,i)=>{
-    const hold=stepHold(i);
     const b=document.createElement('button');
-    b.className='chip'+(i===cur?' cur':'')+(stepDone(i)?' done':'')+
-      (hold?' hold':'')+(hold==='blocked'?' blocked':'');
+    b.className='chip'+(i===cur?' cur':'')+(stepDone(i)?' done':'');
     b.textContent=i;
-    b.title=s.t+(hold==='blocked'?'（トルクセンサー待ち）':hold?'（一部トルクセンサー待ち）':'');
+    b.title=s.t;
     b.onclick=()=>go(i);
     c.appendChild(b);
   });
@@ -1954,25 +2181,19 @@ function renderChips(){
   if(cel) c.scrollTo({left:cel.offsetLeft-c.clientWidth/2+22,behavior:'smooth'});
 }
 function renderStep(){
-  const s=STEPS[cur], el=$('#stepbody'), hold=stepHold(cur);
+  const s=STEPS[cur], el=$('#stepbody');
   let h=`<div class="card">
     <span class="stepno">STEP ${cur} / ${STEPS.length-1}</span>
     <h2>${esc(s.t)}</h2><p class="sub">${esc(s.s)}</p>
     <div class="note info"><b>この工程の目的</b>${esc(s.goal)}</div>`;
-  if(hold){
-    const n=(s.wait||[]).length, m=s.work.length;
-    h+=`<div class="note ${n>m/2?'danger':''}"><b>${m} 項目中 ${n} 項目がトルクセンサー待ちです</b>`+
-       `「センサー待ち」の印が付いた作業は、BBトルクセンサー（HYENA 57T031）が入るまで着手できません。`+
-       `残る ${m-n} 項目は今できます（進捗率の母数はこちらだけ）。</div>`;
+  if(s.fig&&FIGS[s.fig]){
+    h+=`<h3 class="sec">${esc(FIGS[s.fig].title)}</h3>
+        <div class="fig"><div class="svgwrap">${FIGS[s.fig].svg}</div><div class="cap">${esc(FIGS[s.fig].cap)}</div></div>`;
   }
   h+='<h3 class="sec">作業手順</h3><ul class="work">';
   s.work.forEach((w,j)=>{
     const k=dkey(cur,j);
-    if(isWait(cur,j)){
-      h+=`<li class="wait"><label><input type="checkbox" disabled><span>${esc(w)}<span class="tag warn">センサー待ち</span></span></label></li>`;
-    }else{
-      h+=`<li><label><input type="checkbox" data-k="${k}" ${done[k]?'checked':''}><span>${esc(w)}</span></label></li>`;
-    }
+    h+=`<li><label><input type="checkbox" data-k="${k}" ${done[k]?'checked':''}><span>${esc(w)}</span></label></li>`;
   });
   h+='</ul>';
   if(s.tools&&s.tools.length){
@@ -2011,27 +2232,24 @@ function renderStep(){
 function updateProgress(){
   const p=Math.round(doneCount()/totalItems()*100);
   $('#prog').textContent=p+'%'; $('#barfill').style.width=p+'%';
-  renderHoldBanner(p);
+  renderNewsBanner();
 }
-/** 手順タブの先頭に出す「センサー待ち」の説明。進捗率も“今できる分”で示す */
-function renderHoldBanner(p){
-  const el=$('#holdbanner'); if(!el) return;
-  const held=STEPS.map((s,i)=>i).filter(i=>stepHold(i));
-  if(!held.length){ el.innerHTML=''; return; }
-  const blocked=held.filter(i=>stepHold(i)==='blocked');
-  const ts=STEPS.findIndex(s=>s.id==='tsensor'), last=STEPS.findIndex(s=>s.id==='etube');
+/** 手順タブ先頭のお知らせ：BBトルクセンサーの到着。取付工程が済んだら消える */
+function renderNewsBanner(){
+  const el=$('#newsbanner'); if(!el) return;
+  const ts=STEPS.findIndex(s=>s.id==='tsinstall');
+  if(ts<0||stepDone(ts)){ el.innerHTML=''; return; }
   el.innerHTML=`<div class="card">
-    <span class="stepno">部品待ち</span>
-    <h2>BBトルクセンサーが故障中</h2>
-    <p class="sub">HYENA Bottom Bracket Torque Sensor ／ P/N 57T031 ／ S/N JC1-00572</p>
-    <div class="note danger"><b>このセンサーは BB ユニットを兼ねています</b>
-      代わりが入るまでクランクが付かず、チェーン長・変速の位置調整・試走・コラムカットまで止まります。
-      いま進められるのは <b>STEP ${ts}〜${last}</b>。センサー待ちの作業は STEP ${held.join('・')} に印付きで残してあります。</div>
-    <p class="mini">ヘッダーの ${p}% ＝ いま実施できる ${totalItems()} 項目の消化率（センサー待ちの ${waitTotal()} 項目は母数から除外${
-      blocked.length?`／STEP ${blocked.join('・')} は全体が待ち`:''}）</p>
-    <div class="pillrow"><button class="focusbtn" id="gots">STEP ${ts}：センサーの診断と手配へ</button></div>
+    <span class="stepno">${esc(SENSOR_ARRIVED)} 到着</span>
+    <h2>BBトルクセンサーが届きました</h2>
+    <p class="sub">HYENA Bottom Bracket Torque Sensor ／ P/N 57T031（交換品）</p>
+    <div class="note info"><b>全工程に着手できます</b>
+      「センサー待ち」の印はすべて外し、工程を組み立ての順に戻しました。
+      まず STEP ${ts} で受入れ確認と BB シェルへの取付を行い、クランク（STEP ${STEPS.findIndex(s=>s.id==='crank')}）以降へ進みます。
+      このお知らせは STEP ${ts} の全項目にチェックが付くと消えます。</div>
+    <div class="pillrow"><button class="focusbtn" id="gots">STEP ${ts}：センサーの受入れと取付へ</button></div>
   </div>`;
-  const b=$('#gots'); if(b) b.onclick=()=>go(STEPS.findIndex(s=>s.id==='tsensor'));
+  $('#gots').onclick=()=>go(ts);
 }
 function applyView(){
   const s=STEPS[cur];
@@ -2152,7 +2370,7 @@ function renderNeed(){
     b.onclick=()=>focusGroup(b.dataset.g,b.closest('.lenrow').querySelector('b').textContent);
   });
   $('#neednote').innerHTML='<b>このリストの根拠</b>実車写真から確認できた現況と、資料に記載のない項目（チェーンリング歯数など）から作成しています。'+
-    '先頭の<b>「アシスト」区分は 2026-08-13 に故障が判明した BBトルクセンサー関連</b>で、これが入るまで駆動系（STEP 10 以降）には着手できません。'+
+    'BBトルクセンサー本体は 2026-09-27 に到着済みのため、リストからは外しています。'+
     'EW-SD50 の行は配線タブの取付位置の選択に連動します。<b>手持ちの在庫と照合し、発注前に実測してください。</b>';
 }
 /* --- 工具リスト --- */
@@ -2319,6 +2537,114 @@ const WIRE_SVG=`
 </svg>`;
 $('#wirediagram').innerHTML=WIRE_SVG;
 
+/* --- 工程の説明図（手書きSVG）：BBトルクセンサーの取付断面 --- */
+const TS_SVG=`
+<svg viewBox="0 0 372 314" role="img" aria-label="BBトルクセンサーの取付断面図">
+  <defs>
+    <pattern id="tsh" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="6" height="6" class="ts-shellbg"/><line x1="0" y1="0" x2="0" y2="6" class="ts-hl"/>
+    </pattern>
+    <linearGradient id="tsb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="ts-b1"/><stop offset=".5" class="ts-b2"/><stop offset="1" class="ts-b1"/>
+    </linearGradient>
+    <linearGradient id="tss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="ts-s1"/><stop offset=".45" class="ts-s2"/><stop offset="1" class="ts-s1"/>
+    </linearGradient>
+    <style>
+      .ts-shellbg{fill:#eef0f2}.ts-hl{stroke:#8a939c;stroke-width:1.4}
+      .ts-b1{stop-color:#8e98a2}.ts-b2{stop-color:#d5dbe1}
+      .ts-s1{stop-color:#a7b0b9}.ts-s2{stop-color:#f4f6f8}
+      .ts-edge{stroke:#2a3036;stroke-width:1.2}
+      .ts-tube{fill:none;stroke:#9aa3ac;stroke-width:1.2;stroke-dasharray:4 3}
+      .ts-cup{fill:#59616a;stroke:#2a3036;stroke-width:1}
+      .ts-thr{fill:none;stroke:#2a3036;stroke-width:.9}
+      .ts-cab{fill:none;stroke:#3b4249;stroke-width:3.4;stroke-linecap:round}
+      .ts-con{fill:#7f8994;stroke:#2a3036;stroke-width:1}
+      .ts-ghost{fill:none;stroke:#9aa3ac;stroke-width:1.2;stroke-dasharray:3 3}
+      .ts-lb{font:700 10px "Hiragino Sans","Noto Sans JP",sans-serif;fill:#151a20}
+      .ts-sb{font:400 9px "Hiragino Sans","Noto Sans JP",sans-serif;fill:#5a6673}
+      .ts-in{font:700 9px "Hiragino Sans","Noto Sans JP",sans-serif;fill:#20262c}
+      .ts-no{fill:#c0392b}.ts-not{font:800 10px ui-monospace,monospace;fill:#fff}
+      .ts-ld{fill:none;stroke:#c0392b;stroke-width:1}.ts-red{fill:#c0392b}
+      .ts-warn{fill:none;stroke:#c0392b;stroke-width:1.6}
+      @media (prefers-color-scheme:dark){
+        .ts-shellbg{fill:#1f2730}.ts-hl{stroke:#5d6a77}
+        .ts-b1{stop-color:#4f5963}.ts-b2{stop-color:#8d99a5}
+        .ts-s1{stop-color:#6b7682}.ts-s2{stop-color:#c9d2da}
+        .ts-edge{stroke:#c8d4e0}.ts-thr{stroke:#c8d4e0}.ts-cup{stroke:#c8d4e0}.ts-con{stroke:#c8d4e0}
+        .ts-cab{stroke:#d9e1e8}.ts-tube,.ts-ghost{stroke:#5d6a77}
+        .ts-lb{fill:#e7edf3}.ts-sb{fill:#9aa7b4}.ts-in{fill:#0d1116}.ts-ld,.ts-warn{stroke:#ff7a63}.ts-red{fill:#ff7a63}.ts-no{fill:#e8402a}
+      }
+    </style>
+  </defs>
+
+  <!-- フレームのチューブ（断面の外側・参考） -->
+  <path class="ts-tube" d="M128 95 L96 8 M168 95 L136 8"/>
+  <path class="ts-tube" d="M214 95 L300 8 M258 95 L344 8"/>
+  <text class="ts-sb" x="100" y="20">シートチューブ</text>
+  <text class="ts-sb" x="286" y="36">ダウンチューブ</text>
+
+  <!-- BBシェル（上下の肉厚を断面で） -->
+  <path d="M111 95 H162 V112 H111 Z M178 95 H261 V112 H178 Z" fill="url(#tsh)" class="ts-edge"/>
+  <rect x="111" y="188" width="150" height="17" fill="url(#tsh)" class="ts-edge"/>
+  <path class="ts-warn" d="M160 106 l4 -4 M180 106 l-4 -4"/>
+
+  <!-- センサー本体 -->
+  <rect x="116" y="113" width="140" height="74" rx="6" fill="url(#tsb)" class="ts-edge"/>
+  <rect x="160" y="113" width="52" height="74" fill="none" class="ts-thr" stroke-dasharray="2 2"/>
+  <!-- ねじ部 -->
+  <path class="ts-thr" d="M113 112 l3 -3 l3 3 l3 -3 l3 3 l3 -3 l3 3 M113 188 l3 3 l3 -3 l3 3 l3 -3 l3 3 l3 -3"/>
+  <path class="ts-thr" d="M241 112 l3 -3 l3 3 l3 -3 l3 3 l3 -3 l3 3 M241 188 l3 3 l3 -3 l3 3 l3 -3 l3 3 l3 -3"/>
+
+  <!-- カップ（シェル外のフランジ） -->
+  <rect class="ts-cup" x="100" y="88" width="11" height="124" rx="2"/>
+  <rect class="ts-cup" x="261" y="88" width="11" height="124" rx="2"/>
+
+  <!-- スピンドル -->
+  <rect x="58" y="129" width="256" height="42" rx="4" fill="url(#tss)" class="ts-edge"/>
+  <path class="ts-thr" d="M72 129 V171 M300 129 V171"/>
+  <text class="ts-in" x="186" y="154" text-anchor="middle">スピンドル（クランク取付部）</text>
+  <text class="ts-in" x="186" y="183" text-anchor="middle" style="font-size:8px">センサー本体（ひずみゲージ部）</text>
+
+  <!-- クランク位置（参考） -->
+  <path class="ts-ghost" d="M286 62 V238"/>
+  <rect class="ts-ghost" x="300" y="112" width="14" height="128" rx="5"/>
+  <text class="ts-sb" x="366" y="254" text-anchor="end">チェーンリング／右クランク（STEP 9）</text>
+
+  <!-- 信号ケーブルとコネクタ -->
+  <path class="ts-cab" d="M170 113 V88 C170 70 160 62 150 48"/>
+  <rect class="ts-con" x="136" y="22" width="16" height="28" rx="4" transform="rotate(-28 144 36)"/>
+  <path class="ts-cab" d="M138 22 L128 4" style="stroke-dasharray:3 3"/>
+
+  <!-- 番号付きの手順 -->
+  <path class="ts-ld" d="M106 78 L164 90"/>
+  <circle class="ts-no" cx="20" cy="70" r="8"/><text class="ts-not" x="20" y="73.5" text-anchor="middle">1</text>
+  <text class="ts-lb" x="32" y="67">先にケーブルを</text><text class="ts-lb" x="32" y="80">フレームへ通す</text>
+
+  <path class="ts-ld" d="M170 36 L214 60"/>
+  <circle class="ts-no" cx="226" cy="64" r="8"/><text class="ts-not" x="226" y="67.5" text-anchor="middle">4</text>
+  <text class="ts-lb" x="238" y="61">車体側コネクタへ</text><text class="ts-sb" x="238" y="74">矢印を合わせて奥まで</text>
+
+  <path class="ts-ld" d="M186 188 L186 222"/>
+  <circle class="ts-no" cx="126" cy="230" r="8"/><text class="ts-not" x="126" y="233.5" text-anchor="middle">2</text>
+  <text class="ts-lb" x="138" y="234">ケーブルを送りながら本体を入れる</text>
+
+  <path class="ts-ld" d="M105 212 L60 262"/>
+  <circle class="ts-no" cx="20" cy="270" r="8"/><text class="ts-not" x="20" y="273.5" text-anchor="middle">3</text>
+  <text class="ts-lb" x="32" y="267">反対側カップを締める</text><text class="ts-sb" x="32" y="280">BB工具／35–50 N·m（参考・指定値優先）</text>
+
+  <text class="ts-sb" x="8" y="122">非ドライブ側（左）</text>
+  <text class="ts-sb" x="366" y="104" text-anchor="end">ドライブ側（右）</text>
+  <text class="ts-sb" x="252" y="218" text-anchor="middle">BBシェル（断面）</text>
+  <text class="ts-sb ts-red" x="184" y="91">挟み込み注意</text>
+  <text class="ts-sb" x="8" y="296">模式図（寸法は目安）。入れる側・ねじ規格・トルクは、</text>
+  <text class="ts-sb" x="8" y="308">製品の表示と取り外し時の記録を優先する</text>
+</svg>`;
+const FIGS={
+  tsensor:{title:'取付の断面図（模式）', svg:TS_SVG,
+    cap:'左右のカップの間にセンサー本体が収まり、スピンドルの両端にクランクが付きます。ケーブルはシェル上面の穴からフレーム内へ抜けます。赤い番号が作業の順番です。'}
+};
+
 /* ============================================================
    8. 印刷用シート（A4縦）
    ============================================================ */
@@ -2361,18 +2687,15 @@ function buildPrint(){
      <td><span class="chk"></span><b>${esc(r[2])}</b>　${esc(r[3])}<br><span style="font-size:8pt">${esc(r[4])}</span></td></tr>`).join('')}</table>
   <h2>5. 工具リスト</h2>${printTools()}
   <h2 class="pgbreak">6. 施工手順</h2>
-  <div class="pnote"><b>BBトルクセンサー（HYENA 57T031 ／ S/N JC1-00572）が故障・取り外し済み</b>：
-  このセンサーは BB ユニットを兼ねるため、代わりが入るまでクランクを取り付けられません。
-  工程は<b>センサー無しで進められる作業（STEP ${STEPS.findIndex(s=>s.id==='tsensor')}〜${STEPS.findIndex(s=>s.id==='etube')}）を先に</b>並べ、
-  センサーが必要な作業には［トルクセンサー待ち］と付記しています（全 ${waitTotal()} 項目）。
-  いま実施できるのは ${totalItems()} 項目です。</div>`;
+  <div class="pnote"><b>BBトルクセンサー（HYENA 57T031）の交換品が到着（${esc(SENSOR_ARRIVED)}）</b>：
+  全工程に着手できます。センサーは BB ユニットを兼ねるため、STEP ${STEPS.findIndex(s=>s.id==='tsinstall')} で先に取り付け、
+  クランク（STEP ${STEPS.findIndex(s=>s.id==='crank')}）→ チェーン → E-TUBE 調整 → 試走 → コラムカットの順に進めます。全 ${totalItems()} 項目。</div>`;
   STEPS.forEach((s,i)=>{
-    const hold=stepHold(i);
-    h+=`<div class="pstep"><h3>STEP ${i}　${esc(s.t)}　<span style="font-weight:400;font-size:8.5pt">（${esc(s.s)}${
-      hold==='blocked'?'／全体がトルクセンサー待ち':hold?'／一部トルクセンサー待ち':''}）</span></h3>
-    <div style="font-size:8.5pt;margin-bottom:1mm">目的：${esc(s.goal)}</div><ul>`;
-    s.work.forEach((w,j)=>h+=`<li><span class="chk"></span>${esc(w)}${
-      isWait(i,j)?'　<b>［トルクセンサー待ち］</b>':''}</li>`);
+    h+=`<div class="pstep"><h3>STEP ${i}　${esc(s.t)}　<span style="font-weight:400;font-size:8.5pt">（${esc(s.s)}）</span></h3>
+    <div style="font-size:8.5pt;margin-bottom:1mm">目的：${esc(s.goal)}</div>`;
+    if(s.fig&&FIGS[s.fig]) h+=`<div style="width:120mm;margin:1mm auto">${FIGS[s.fig].svg}</div>`;
+    h+='<ul>';
+    s.work.forEach(w=>h+=`<li><span class="chk"></span>${esc(w)}</li>`);
     h+='</ul>';
     if(s.tools&&s.tools.length) h+=`<div style="font-size:8.5pt">工具：${s.tools.map(esc).join('／')}</div>`;
     const pm=(STEP_MAN[s.id]||[]).map(id=>MANUALS.find(m=>m.id===id)).filter(Boolean);
@@ -2405,6 +2728,7 @@ function buildScenes(){
     const anim =
       st.id==='wheel' ? 'spin' :
       st.id==='chain'||st.id==='crank' ? 'drive' :
+      st.id==='tsinstall' ? 'tsInsert' :
       (st.id==='rd'||st.id==='junction'||st.id==='cockpit'||st.id==='brake') ? 'install' :
       'orbit';
     return {
@@ -2412,8 +2736,8 @@ function buildScenes(){
       dur: clamp(5.5+st.work.length*0.85, 6, 14),
       az: st.view.az, el: st.view.el, fit: st.view.fit||st.g,
       title: st.t,
-      sub: st.s + (stepHold(i)==='blocked' ? '（トルクセンサー待ち）' : ''),
-      lines: st.work.map((w,j)=>isWait(i,j) ? '［センサー待ち］'+w : w)
+      sub: st.s,
+      lines: st.work.slice()
     };
   });
   // 配線工程は「1本ずつ、上流から順につなぐ」流れが分かるようにシーンを割る
@@ -2502,6 +2826,10 @@ function applyScene(sc,p){
     for(const g of ['wheelR','motor','rotorR','cassette']) XF[g]={ang:-a,cx:REAR.x,cy:REAR.y};
     for(const g of ['wheelF','rotorF'])                    XF[g]={ang:-a,cx:FRONT.x,cy:FRONT.y};
     if(sc.anim==='drive') XF.crank={ang:-a,cx:0,cy:0};
+  }else if(sc.anim==='tsInsert'){
+    // センサーが非ドライブ側から BB シェルへ入っていく
+    const k=1-ease(clamp((p-0.08)/0.55,0,1));
+    if(k>0.001) XF={tsensor:{dz:-190*k}};
   }else if(sc.anim==='cableAll'){
     // 全体像：6本を上流から順に、少し重ねながら一気に伸ばす
     const n=CABLES.length, span=1/n;
